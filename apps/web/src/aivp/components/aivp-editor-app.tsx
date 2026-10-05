@@ -18,6 +18,7 @@ import { useAivpStore, type AivpEditorState } from "../store";
 import { AivpConflictDialog } from "./aivp-conflict-dialog";
 import { AivpExportDialog } from "./aivp-export-dialog";
 import { AivpHistoryDialog } from "./aivp-history-dialog";
+import { AivpTitleCardDialog } from "./aivp-title-card-dialog";
 
 /**
  * AIVP embedded OpenCut Classic editor: the upstream four-panel editor
@@ -90,6 +91,7 @@ function Screen({ children }: { children: React.ReactNode }) {
 function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 	const [exportOpen, setExportOpen] = useState(false);
 	const [historyOpen, setHistoryOpen] = useState(false);
+	const [titleCardOpen, setTitleCardOpen] = useState(false);
 	const [conflictOpen, setConflictOpen] = useState(true);
 	const conflict = useAivpStore((state) => state.conflict);
 	const closing = useAivpStore((state) => state.closing);
@@ -105,7 +107,12 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 		<>
 			{!replacing && <EditorRuntimeBindings />}
 			<div className="bg-background flex h-screen w-screen flex-col overflow-hidden" inert={closing || replacing}>
-				<AivpHeader controller={controller} onExport={() => setExportOpen(true)} onHistory={() => setHistoryOpen(true)} />
+				<AivpHeader
+					controller={controller}
+					onExport={() => setExportOpen(true)}
+					onHistory={() => setHistoryOpen(true)}
+					onTitleCard={replacing ? null : () => setTitleCardOpen(true)}
+				/>
 				<AivpBanners controller={controller} onShowConflict={() => setConflictOpen(true)} />
 				<div className="min-h-0 min-w-0 flex-1 pt-2">
 					{replacing ? (
@@ -130,6 +137,7 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 				</div>
 			)}
 			<AivpHistoryDialog controller={controller} open={historyOpen} onOpenChange={setHistoryOpen} />
+			{!replacing && <AivpTitleCardDialog open={titleCardOpen && !closing} onOpenChange={setTitleCardOpen} />}
 			{!replacing && (
 				<AivpExportDialog
 					controller={controller}
@@ -193,10 +201,13 @@ function AivpHeader({
 	controller,
 	onExport,
 	onHistory,
+	onTitleCard,
 }: {
 	controller: AivpEditorController;
 	onExport: () => void;
 	onHistory: () => void;
+	/** Null while the open project is being replaced (no active scene to edit). */
+	onTitleCard: (() => void) | null;
 }) {
 	const workspace = useAivpStore((state) => state.workspace);
 	const localSave = useAivpStore((state) => state.localSave);
@@ -253,6 +264,15 @@ function AivpHeader({
 					onClick={() => void controller.populateTimeline()}
 				>
 					按镜头顺序铺入
+				</Button>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={onTitleCard === null}
+					title="在主轨所选位置插入黑底白字字幕卡，之后所有轨道同步后移"
+					onClick={() => onTitleCard?.()}
+				>
+					插入字幕卡
 				</Button>
 				<Button variant="outline" size="sm" onClick={onHistory}>
 					版本历史

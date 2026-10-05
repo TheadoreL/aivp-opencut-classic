@@ -63,3 +63,12 @@ transcription model downloads, Google font CSS.
   import, timeline population on an empty timeline only, AIVP header/status,
   export, conflict and version-history dialogs (inspect any server version,
   explicitly recover it as a new version) and the VI theme.
+- `src/aivp/title-card.ts` + `components/aivp-title-card-dialog.tsx`: “插入字幕卡”
+  header action — a white centred title over a full-frame black rectangle,
+  inserted at a main-track boundary as one `TracksSnapshotCommand`; every
+  element at/after the boundary on all tracks moves by the same interval,
+  and an element crossing the boundary refuses the insertion.
+- Accessibility: icon-only timeline toolbar buttons, timeline zoom
+  buttons/slider (`Slider.thumbLabel`), the scenes button and the preview
+  play/fullscreen/zoom controls have accessible names (toggles expose
+  `aria-pressed`).

@@ -51,7 +51,7 @@ export function PreviewToolbar({
 						)}
 					</Button>
 				</GridPopover> */}
-				<Button variant="text" onClick={onToggleFullscreen}>
+				<Button variant="text" aria-label="Fullscreen" onClick={onToggleFullscreen}>
 					<HugeiconsIcon icon={FullScreenIcon} />
 				</Button>
 			</div>
@@ -117,7 +117,9 @@ function ZoomSelect() {
 			value={isAtFit ? "fit" : String(zoomPercent)}
 			onValueChange={onValueChange}
 		>
-			<SelectTrigger className="tabular-nums">{displayLabel}</SelectTrigger>
+			<SelectTrigger className="tabular-nums" aria-label={`Preview zoom: ${displayLabel}`}>
+				{displayLabel}
+			</SelectTrigger>
 			<SelectContent>
 				<SelectItem value="fit">Fit</SelectItem>
 				<SelectSeparator />
@@ -138,6 +140,7 @@ function PlayPauseButton() {
 		<Button
 			variant="text"
 			size="icon"
+			aria-label={isPlaying ? "Pause" : "Play"}
 			onClick={() => invokeAction("toggle-play")}
 		>
 			<HugeiconsIcon icon={isPlaying ? PauseIcon : PlayIcon} />

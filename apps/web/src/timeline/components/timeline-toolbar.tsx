@@ -255,7 +255,7 @@ function SceneSelector() {
 				<SplitButtonLeft>{currentScene?.name || "No Scene"}</SplitButtonLeft>
 				<SplitButtonSeparator />
 				<ScenesView>
-					<SplitButtonRight onClick={() => {}}>
+					<SplitButtonRight aria-label="Scenes" onClick={() => {}}>
 						<HugeiconsIcon icon={Layers01Icon} className="size-4" />
 					</SplitButtonRight>
 				</ScenesView>
@@ -304,12 +304,14 @@ function ToolbarRightSection({
 				<Button
 					variant="text"
 					size="icon"
+					aria-label="Zoom out"
 					onClick={() => onZoom({ direction: "out" })}
 				>
 					<HugeiconsIcon icon={SearchMinusIcon} />
 				</Button>
 				<Slider
 					className="w-28"
+					thumbLabel="Timeline zoom"
 					value={[zoomToSlider({ zoomLevel, minZoom })]}
 					onValueChange={(values) =>
 						onZoomChange(sliderToZoom({ sliderPosition: values[0], minZoom }))
@@ -321,6 +323,7 @@ function ToolbarRightSection({
 				<Button
 					variant="text"
 					size="icon"
+					aria-label="Zoom in"
 					onClick={() => onZoom({ direction: "in" })}
 				>
 					<HugeiconsIcon icon={SearchAddIcon} />
@@ -350,6 +353,9 @@ function ToolbarButton({
 			variant={isActive ? "secondary" : "text"}
 			size="icon"
 			disabled={disabled}
+			// Icon-only: the tooltip text is its accessible name; toggles expose their state.
+			aria-label={tooltip}
+			aria-pressed={isActive === undefined ? undefined : isActive}
 			onClick={onClick ? (event) => onClick({ event }) : undefined}
 			className={cn(
 				"rounded-sm",

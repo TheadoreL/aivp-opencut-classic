@@ -93,14 +93,68 @@ export async function projectHash(
 	return sha256Hex(stableStringify(projectForSnapshot(serialized)));
 }
 
+/** Platform manifest entry ids (server-issued); local files never use this shape. */
+const ENTRY_ID = /^eme_[A-Za-z0-9_-]{1,60}$/;
+
+const bindingOf = (
+	id: string,
+	manifestEntryIds: ReadonlySet<string>,
+): SnapshotMediaBinding =>
+	manifestEntryIds.has(id) || ENTRY_ID.test(id)
+		? { kind: "manifest", entryId: id }
+		: { kind: "local" };
+
+/** Media referenced by timeline elements of the serialized project (id → name/type). */
+export function referencedMedia(
+	serialized: Record<string, unknown>,
+): Map<string, { name: string; type: "image" | "video" | "audio" }> {
+	const found = new Map<string, { name: string; type: "image" | "video" | "audio" }>();
+	const scenes = Array.isArray(serialized.scenes) ? serialized.scenes : [];
+	for (const scene of scenes) {
+		const tracks = (scene as { tracks?: Record<string, unknown> }).tracks;
+		if (!tracks) continue;
+		const all = [
+			tracks.main,
+			...(Array.isArray(tracks.overlay) ? tracks.overlay : []),
+			...(Array.isArray(tracks.audio) ? tracks.audio : []),
+		];
+		for (const track of all) {
+			const elements = (track as { elements?: unknown } | undefined)?.elements;
+			if (!Array.isArray(elements)) continue;
+			for (const element of elements as Array<Record<string, unknown>>) {
+				const type = element.type;
+				const mediaId = element.mediaId;
+				if (
+					typeof mediaId === "string" &&
+					(type === "video" || type === "image" || type === "audio") &&
+					!found.has(mediaId)
+				) {
+					found.set(mediaId, {
+						name: typeof element.name === "string" ? element.name : mediaId,
+						type,
+					});
+				}
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * The document's media list: the media bin plus every media a clip still
+ * references while it is missing from this device's bin (so a restored
+ * project with missing files stays a complete, valid document).
+ */
 export function describeMedia({
 	assets,
 	manifestEntryIds,
+	serialized,
 }: {
 	assets: readonly MediaAsset[];
 	manifestEntryIds: ReadonlySet<string>;
+	serialized: Record<string, unknown>;
 }): SnapshotMediaItem[] {
-	return assets
+	const items: SnapshotMediaItem[] = assets
 		.filter((asset) => asset.ephemeral !== true)
 		.map((asset) => ({
 			id: asset.id,
@@ -111,10 +165,15 @@ export function describeMedia({
 			duration: asset.duration,
 			fps: asset.fps,
 			hasAudio: asset.hasAudio,
-			binding: manifestEntryIds.has(asset.id)
-				? { kind: "manifest", entryId: asset.id }
-				: { kind: "local" },
+			binding: bindingOf(asset.id, manifestEntryIds),
 		}));
+	const present = new Set(items.map((item) => item.id));
+	for (const [id, info] of referencedMedia(serialized)) {
+		if (present.has(id)) continue;
+		items.push({ id, name: info.name, type: info.type, binding: bindingOf(id, manifestEntryIds) });
+		present.add(id);
+	}
+	return items;
 }
 
 export async function buildSnapshot({

@@ -1,6 +1,5 @@
 import type { NextConfig } from "next";
-import { withBotId } from "botid/next/config";
-import { withContentCollections } from "@content-collections/next";
+import { resolve } from "node:path";
 
 const nextConfig: NextConfig = {
 	compiler: {
@@ -71,8 +70,23 @@ const aivpEditorConfig: NextConfig = {
 	compiler: {
 		removeConsole: { exclude: ["error", "warn"] },
 	},
+	// Type-check program of the editor build: the AIVP entries and everything
+	// they import (strict, unchanged options); not the site pages/config wrappers.
+	typescript: { tsconfigPath: "tsconfig.aivp.json" },
+	// This fork is its own workspace (bun.lock); never infer an outer monorepo root.
+	turbopack: { root: resolve(process.cwd(), "../..") },
 };
 
-export default process.env.AIVP_EDITOR_BUILD === "1"
-	? aivpEditorConfig
-	: withContentCollections(withBotId(nextConfig));
+/**
+ * The site build keeps its BotId and content-collections wrappers. They are
+ * loaded only for that build, so the editor build neither runs nor resolves
+ * them (they bind to another copy of `next` in the workspace root).
+ */
+export default async function config(): Promise<NextConfig> {
+	if (process.env.AIVP_EDITOR_BUILD === "1") return aivpEditorConfig;
+	const [{ withBotId }, { withContentCollections }] = await Promise.all([
+		import("botid/next/config"),
+		import("@content-collections/next"),
+	]);
+	return withContentCollections(withBotId(nextConfig));
+}

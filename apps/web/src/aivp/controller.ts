@@ -69,6 +69,36 @@ function accessFor(error: AivpBridgeError): AivpAccessState | null {
 	}
 }
 
+export interface SnapshotSummary {
+	sceneCount: number;
+	trackCount: number;
+	clipCount: number;
+	textCount: number;
+	mediaCount: number;
+}
+
+/** What a snapshot's project contains (counts only; read-only). */
+function summarise(project: Record<string, unknown>, mediaCount: number): SnapshotSummary {
+	const scenes = Array.isArray(project.scenes) ? (project.scenes as Array<{ tracks?: Record<string, unknown> }>) : [];
+	let trackCount = 0;
+	let clipCount = 0;
+	let textCount = 0;
+	for (const scene of scenes) {
+		const tracks = scene.tracks ?? {};
+		const all = [tracks.main, ...(Array.isArray(tracks.overlay) ? tracks.overlay : []), ...(Array.isArray(tracks.audio) ? tracks.audio : [])];
+		for (const track of all) {
+			const elements = (track as { elements?: unknown } | undefined)?.elements;
+			if (!Array.isArray(elements)) continue;
+			trackCount += 1;
+			for (const element of elements as Array<{ type?: unknown }>) {
+				clipCount += 1;
+				if (element.type === "text") textCount += 1;
+			}
+		}
+	}
+	return { sceneCount: scenes.length, trackCount, clipCount, textCount, mediaCount };
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 	return Promise.race([
 		promise,
@@ -421,6 +451,7 @@ export class AivpEditorController {
 			media: describeMedia({
 				assets: this.editor.media.getAssets(),
 				manifestEntryIds: manifestIds,
+				serialized,
 			}),
 		});
 		if (overrideBase === undefined && snapshot.projectHash === record.syncedProjectHash) {
@@ -570,6 +601,83 @@ export class AivpEditorController {
 		await writeSyncRecord(this.record);
 		useAivpStore.getState().set({ notice: "已恢复本机副本，将作为新版本同步" });
 		this.editor.save.markDirty({ force: true });
+	}
+
+	// ---- version history -------------------------------------------------------------------------
+
+	/** Server versions of this episode's edit, newest first (read-only). */
+	async listHistory(page = 1) {
+		const result = await this.bridge.snapshots.list(this.token, page);
+		if (!result.ok) {
+			const access = accessFor(result.error);
+			if (access !== null && access !== "offline") this.setAccess(access, errorText(result.error));
+		}
+		return result;
+	}
+
+	/** Loads one version and summarises what it contains (nothing is changed). */
+	async inspectSnapshot(snapshotId: string): Promise<
+		| { ok: true; snapshot: AivpSnapshot; summary: SnapshotSummary }
+		| { ok: false; message: string }
+	> {
+		const result = await this.bridge.snapshots.get(this.token, snapshotId);
+		if (!result.ok) return { ok: false, message: errorText(result.error) };
+		try {
+			const document = parseSnapshot({ content: result.data.content, workspaceId: this.workspaceId() });
+			return { ok: true, snapshot: result.data, summary: summarise(document.project, document.media.length) };
+		} catch (error) {
+			return { ok: false, message: error instanceof Error ? error.message : "无法读取该版本" };
+		}
+	}
+
+	/**
+	 * Explicitly recovers an earlier server version as a NEW version on top of
+	 * the current one: the old content is loaded into the editor and uploaded
+	 * with the current server revision as its base. Nothing is overwritten:
+	 * every server version stays in history, unsynced local work is kept as a
+	 * local recovery copy first, and a concurrent newer save is a conflict.
+	 */
+	async recoverSnapshot(snapshotId: string): Promise<{ ok: true; revision: number } | { ok: false; message: string }> {
+		const state = aivpState();
+		if (state.access !== "active") return { ok: false, message: state.accessMessage ?? "当前无法连接服务器，不能恢复历史版本" };
+		if (state.workspace?.permissions.edit !== true) return { ok: false, message: "没有剪辑编辑权限" };
+		if (state.conflict !== null) return { ok: false, message: "请先处理当前的版本冲突" };
+		if (!this.record) return { ok: false, message: "剪辑工程尚未打开" };
+		const inspected = await this.inspectSnapshot(snapshotId);
+		if (!inspected.ok) return inspected;
+		if (this.uploadTimer) clearTimeout(this.uploadTimer);
+		this.uploadTimer = null;
+		if (this.uploading) await this.uploading.catch(() => undefined);
+		const latest = await this.listHistory(1);
+		if (!latest.ok) return { ok: false, message: errorText(latest.error) };
+		const currentRevision = latest.data.items[0]?.revisionNumber ?? 0;
+		try {
+			await this.editor.save.flush();
+		} catch {
+			return { ok: false, message: "本机保存失败，未恢复历史版本（当前修改仍保留在编辑器中）" };
+		}
+		const serialized = this.editor.project.serializeActiveProject();
+		if (serialized && (await projectHash(serialized)) !== this.record.syncedProjectHash) {
+			this.record = withRecoveryCopy(this.record, {
+				savedAt: Date.now(),
+				baseRevision: this.record.baseRevision,
+				reason: "conflict",
+				content: JSON.stringify(serialized),
+			});
+			await writeSyncRecord(this.record);
+		}
+		await this.importServerSnapshot(inspected.snapshot);
+		await this.editor.project.loadProject({ id: this.workspaceId() });
+		this.record = { ...this.record, baseRevision: currentRevision };
+		await writeSyncRecord(this.record);
+		await this.uploadNow({ overrideBase: currentRevision });
+		void this.syncMedia();
+		const server = aivpState().server;
+		if (server.phase !== "synced") {
+			return { ok: false, message: server.error ?? "历史版本已载入本机，但尚未保存为服务器新版本；稍后会继续同步" };
+		}
+		useAivpStore.getState().set({ notice: `已将第 ${inspected.snapshot.revisionNumber} 版恢复为新的第 ${server.revision} 版` });
+		return { ok: true, revision: server.revision };
 	}
 
 	recoveryCopyCount(): number {
@@ -877,17 +985,24 @@ export class AivpEditorController {
 	async handleCloseRequest(): Promise<void> {
 		if (this.closing) return;
 		this.closing = true;
+		// Freeze editing while closing: the overlay blocks input and keyboard shortcuts.
+		useAivpStore.getState().set({ closing: true });
 		try {
-			let localSaved = true;
-			try {
-				await this.editor.save.flush();
-			} catch {
-				localSaved = false;
+			let localSaved = false;
+			for (let attempt = 0; attempt < 3 && !localSaved; attempt++) {
+				try {
+					await this.editor.save.flush();
+				} catch {
+					break;
+				}
+				// Saved means the save manager is clean NOW, not merely that one flush resolved.
+				localSaved = !this.editor.save.getIsDirty();
 			}
 			if (
 				!localSaved &&
-				!window.confirm("本机保存失败，关闭后最近的修改可能丢失。仍要关闭剪辑器吗？")
+				!window.confirm("本机保存失败或仍有未保存的修改，关闭后最近的修改可能丢失。仍要关闭剪辑器吗？")
 			) {
+				useAivpStore.getState().set({ closing: false });
 				return;
 			}
 			let serverSynced = aivpState().server.phase === "synced";

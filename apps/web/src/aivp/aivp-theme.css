@@ -219,6 +219,28 @@ html.aivp-editor :focus-visible {
 	line-height: 1.7;
 }
 
+.aivp-closing {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	display: grid;
+	place-items: center;
+	background: #070c16cc;
+	color: #e9f1f8;
+	font-size: 14px;
+}
+
+.aivp-closing > div {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 16px 22px;
+	border: 1px solid #2b4055;
+	border-radius: 12px;
+	background: #111e2e;
+	box-shadow: 0 14px 36px #02081166;
+}
+
 .aivp-media-list {
 	max-height: 360px;
 	overflow: auto;

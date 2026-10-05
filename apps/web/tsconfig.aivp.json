@@ -1,0 +1,22 @@
+// Type-check program of the AIVP embedded editor build (next.config.ts
+// `typescript.tsconfigPath` when AIVP_EDITOR_BUILD=1). Roots are the AIVP
+// entries; every module they import (the whole Classic editor) is
+// type-checked with the same strict options. The OpenCut site pages and the
+// site-only next.config wrappers are not part of this program.
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"incremental": true,
+		"tsBuildInfoFile": ".next-aivp/tsconfig.aivp.tsbuildinfo"
+	},
+	"include": [
+		"next-env.d.ts",
+		"src/types/**/*.d.ts",
+		"src/app/layout.aivp.tsx",
+		"src/app/page.aivp.tsx",
+		"src/aivp/**/*.ts",
+		"src/aivp/**/*.tsx",
+		".next-aivp/types/**/*.ts"
+	],
+	"exclude": ["node_modules"]
+}

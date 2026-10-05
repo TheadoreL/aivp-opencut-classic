@@ -8,6 +8,9 @@ type SaveManagerOptions = {
 
 export type SaveManagerPhase = "idle" | "dirty" | "saving" | "error";
 
+/** Upper bound of save rounds one flush performs while edits keep arriving. */
+const MAX_FLUSH_ROUNDS = 25;
+
 export interface SaveManagerStatus {
 	phase: SaveManagerPhase;
 	/** Changes not yet persisted (also true while a save is in flight). */
@@ -117,8 +120,11 @@ export class SaveManager {
 			// Upstream semantics: an explicit flush always writes the current state once.
 			this.dirtyGeneration += 1;
 		}
-		const target = this.dirtyGeneration;
-		while (this.savedGeneration < target) {
+		// Drains: edits that arrive while this flush waits (or while its own save
+		// runs) are persisted before it resolves. Bounded so continuous edits
+		// cannot keep an exit waiting forever; that case rejects (still dirty).
+		let rounds = 0;
+		while (this.savedGeneration < this.dirtyGeneration) {
 			if (this.inFlight !== null) {
 				try {
 					await this.inFlight;
@@ -127,6 +133,10 @@ export class SaveManager {
 				}
 				continue;
 			}
+			if (rounds >= MAX_FLUSH_ROUNDS) {
+				throw new Error("Changes kept arriving while saving; they are not all saved yet");
+			}
+			rounds += 1;
 			const attempted = await this.saveNow({ explicit: true });
 			if (!attempted) return;
 		}

@@ -17,6 +17,11 @@ Nothing is replaced by a demo timeline or a JSON "export".
 serves them from its own `aivp-editor://classic` origin. No Node/Bun server
 runs at runtime. The regular OpenCut site build (`next build`) is unchanged.
 
+The editor build type-checks its own program (`apps/web/tsconfig.aivp.json`:
+the AIVP entries and every module they import, same strict options) and
+loads the site-only BotId/content-collections config wrappers only for the
+site build; Turbopack's root is pinned to this fork.
+
 The AIVP build excludes BotId, content collections, analytics
 (databuddy), react-scan and remote Google fonts (layout
 `src/app/layout.aivp.tsx`) and hides features that need remote services
@@ -27,9 +32,11 @@ transcription model downloads, Google font CSS.
 
 - `core/managers/save-manager.ts`: a failed save no longer clears the dirty
   state; it records the error and schedules one bounded exponential retry
-  (no tight loop). `flush()` waits for an in-flight save and then persists
-  edits made meanwhile, and rejects when persisting fails, so exit guards
-  never treat unsaved work as saved. Status is observable
+  (no tight loop). `flush()` waits for an in-flight save and keeps saving
+  until edits made while it waits are persisted (bounded rounds), and
+  rejects when persisting fails, so exit guards never treat unsaved work as
+  saved. The AIVP close path freezes editing and reports "saved" only when
+  the save manager is clean. Status is observable
   (`getStatus`, `subscribeStatus`).
 - `core/managers/project-manager.ts`: `saveCurrentProject` propagates
   storage failures instead of logging and returning as if saved.
@@ -52,4 +59,5 @@ transcription model downloads, Google font CSS.
 - `src/aivp/`: host bridge typing, server snapshot sync with optimistic
   concurrency and conflict handling, local sync records, manifest media
   import, timeline population on an empty timeline only, AIVP header/status,
-  export and conflict dialogs and the VI theme.
+  export, conflict and version-history dialogs (inspect any server version,
+  explicitly recover it as a new version) and the VI theme.

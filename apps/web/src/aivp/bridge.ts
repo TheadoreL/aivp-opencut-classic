@@ -175,6 +175,13 @@ export interface AivpEditorBridge {
 	heartbeat(token: string): Promise<AivpResult<AivpSession>>;
 	snapshots: {
 		latest(token: string): Promise<AivpResult<AivpSnapshot | null>>;
+		/** Immutable server versions of this workspace, newest first. */
+		list(
+			token: string,
+			page: number,
+		): Promise<AivpResult<{ items: AivpSnapshotMeta[]; page: number; pageSize: number; total: number }>>;
+		/** One version with its content (for inspection or explicit recovery). */
+		get(token: string, snapshotId: string): Promise<AivpResult<AivpSnapshot>>;
 		save(
 			token: string,
 			input: {

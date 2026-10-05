@@ -59,6 +59,8 @@ export interface AivpEditorState {
 	mediaStates: Record<string, MediaEntryState>;
 	missing: MissingMedia[];
 	notice: string | null;
+	/** The host asked to close: editing is frozen while the last changes are saved. */
+	closing: boolean;
 	set: (partial: Partial<AivpEditorState>) => void;
 	setMediaState: (entryId: string, state: MediaEntryState) => void;
 }
@@ -78,6 +80,7 @@ export const useAivpStore = create<AivpEditorState>((set) => ({
 	mediaStates: {},
 	missing: [],
 	notice: null,
+	closing: false,
 	set: (partial) => set(partial),
 	setMediaState: (entryId, state) =>
 		set((current) => ({

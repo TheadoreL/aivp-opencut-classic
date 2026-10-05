@@ -17,6 +17,7 @@ import { AivpEditorController } from "../controller";
 import { useAivpStore, type AivpEditorState } from "../store";
 import { AivpConflictDialog } from "./aivp-conflict-dialog";
 import { AivpExportDialog } from "./aivp-export-dialog";
+import { AivpHistoryDialog } from "./aivp-history-dialog";
 
 /**
  * AIVP embedded OpenCut Classic editor: the upstream four-panel editor
@@ -29,6 +30,7 @@ export function AivpEditorApp() {
 	const [controller] = useState(() => AivpEditorController.create());
 	const phase = useAivpStore((state) => state.phase);
 	const failure = useAivpStore((state) => state.failure);
+	const closing = useAivpStore((state) => state.closing);
 	const setLoadingProject = useKeybindingsStore((state) => state.setLoadingProject);
 
 	useEffect(() => {
@@ -37,9 +39,10 @@ export function AivpEditorApp() {
 		return () => controller.dispose();
 	}, [controller]);
 
+	// Shortcuts stay off until ready and while closing (editing is frozen for the final save).
 	useEffect(() => {
-		setLoadingProject(phase !== "ready");
-	}, [phase, setLoadingProject]);
+		setLoadingProject(phase !== "ready" || closing);
+	}, [phase, closing, setLoadingProject]);
 
 	if (!controller) {
 		return (
@@ -85,8 +88,10 @@ function Screen({ children }: { children: React.ReactNode }) {
 
 function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 	const [exportOpen, setExportOpen] = useState(false);
+	const [historyOpen, setHistoryOpen] = useState(false);
 	const [conflictOpen, setConflictOpen] = useState(true);
 	const conflict = useAivpStore((state) => state.conflict);
+	const closing = useAivpStore((state) => state.closing);
 
 	useEffect(() => {
 		if (conflict) setConflictOpen(true);
@@ -95,14 +100,23 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 	return (
 		<>
 			<EditorRuntimeBindings />
-			<div className="bg-background flex h-screen w-screen flex-col overflow-hidden">
-				<AivpHeader controller={controller} onExport={() => setExportOpen(true)} />
+			<div className="bg-background flex h-screen w-screen flex-col overflow-hidden" inert={closing}>
+				<AivpHeader controller={controller} onExport={() => setExportOpen(true)} onHistory={() => setHistoryOpen(true)} />
 				<AivpBanners controller={controller} onShowConflict={() => setConflictOpen(true)} />
 				<div className="min-h-0 min-w-0 flex-1 pt-2">
 					<EditorLayout />
 				</div>
 				<MigrationDialog />
 			</div>
+			{closing && (
+				<div className="aivp-closing" role="alertdialog" aria-modal="true" aria-label="正在保存并关闭">
+					<div>
+						<Loader2 className="size-6 animate-spin text-primary" />
+						<span>正在保存最后的修改并关闭剪辑器…</span>
+					</div>
+				</div>
+			)}
+			<AivpHistoryDialog controller={controller} open={historyOpen} onOpenChange={setHistoryOpen} />
 			<AivpExportDialog
 				controller={controller}
 				open={exportOpen}
@@ -163,9 +177,11 @@ function serverStatus(
 function AivpHeader({
 	controller,
 	onExport,
+	onHistory,
 }: {
 	controller: AivpEditorController;
 	onExport: () => void;
+	onHistory: () => void;
 }) {
 	const workspace = useAivpStore((state) => state.workspace);
 	const localSave = useAivpStore((state) => state.localSave);
@@ -222,6 +238,9 @@ function AivpHeader({
 					onClick={() => void controller.populateTimeline()}
 				>
 					按镜头顺序铺入
+				</Button>
+				<Button variant="outline" size="sm" onClick={onHistory}>
+					版本历史
 				</Button>
 				<Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={onExport}>
 					导出成片

@@ -205,6 +205,9 @@ export class SaveManager {
 			return true;
 		}
 		if (!this.hasUnsavedGeneration()) return true;
+		// Paused (project being loaded/replaced): a timer or retry scheduled earlier must not
+		// write the outgoing project over the incoming one. resume() re-queues the save.
+		if (this.isPaused && !explicit) return false;
 
 		const activeProject = this.editor.project.getActiveOrNull
 			? this.editor.project.getActiveOrNull()

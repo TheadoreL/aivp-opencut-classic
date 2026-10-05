@@ -61,6 +61,8 @@ export interface AivpEditorState {
 	notice: string | null;
 	/** The host asked to close: editing is frozen while the last changes are saved. */
 	closing: boolean;
+	/** The open project is being replaced (history/conflict/recovery): editor panels are unmounted. */
+	replacing: boolean;
 	set: (partial: Partial<AivpEditorState>) => void;
 	setMediaState: (entryId: string, state: MediaEntryState) => void;
 }
@@ -81,6 +83,7 @@ export const useAivpStore = create<AivpEditorState>((set) => ({
 	missing: [],
 	notice: null,
 	closing: false,
+	replacing: false,
 	set: (partial) => set(partial),
 	setMediaState: (entryId, state) =>
 		set((current) => ({

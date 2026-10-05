@@ -31,6 +31,7 @@ export function AivpEditorApp() {
 	const phase = useAivpStore((state) => state.phase);
 	const failure = useAivpStore((state) => state.failure);
 	const closing = useAivpStore((state) => state.closing);
+	const replacing = useAivpStore((state) => state.replacing);
 	const setLoadingProject = useKeybindingsStore((state) => state.setLoadingProject);
 
 	useEffect(() => {
@@ -39,10 +40,10 @@ export function AivpEditorApp() {
 		return () => controller.dispose();
 	}, [controller]);
 
-	// Shortcuts stay off until ready and while closing (editing is frozen for the final save).
+	// Shortcuts stay off until ready, while closing (final save) and while the project is replaced.
 	useEffect(() => {
-		setLoadingProject(phase !== "ready" || closing);
-	}, [phase, closing, setLoadingProject]);
+		setLoadingProject(phase !== "ready" || closing || replacing);
+	}, [phase, closing, replacing, setLoadingProject]);
 
 	if (!controller) {
 		return (
@@ -92,6 +93,9 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 	const [conflictOpen, setConflictOpen] = useState(true);
 	const conflict = useAivpStore((state) => state.conflict);
 	const closing = useAivpStore((state) => state.closing);
+	// While the open project is replaced the panels (whose selectors need an active scene),
+	// keybindings and export dialog are unmounted; they mount again on the loaded project.
+	const replacing = useAivpStore((state) => state.replacing);
 
 	useEffect(() => {
 		if (conflict) setConflictOpen(true);
@@ -99,12 +103,21 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 
 	return (
 		<>
-			<EditorRuntimeBindings />
-			<div className="bg-background flex h-screen w-screen flex-col overflow-hidden" inert={closing}>
+			{!replacing && <EditorRuntimeBindings />}
+			<div className="bg-background flex h-screen w-screen flex-col overflow-hidden" inert={closing || replacing}>
 				<AivpHeader controller={controller} onExport={() => setExportOpen(true)} onHistory={() => setHistoryOpen(true)} />
 				<AivpBanners controller={controller} onShowConflict={() => setConflictOpen(true)} />
 				<div className="min-h-0 min-w-0 flex-1 pt-2">
-					<EditorLayout />
+					{replacing ? (
+						<div className="aivp-panel-status" role="status">
+							<div>
+								<Loader2 className="size-6 animate-spin text-primary" />
+								<span className="text-muted-foreground">正在载入所选剪辑版本…</span>
+							</div>
+						</div>
+					) : (
+						<EditorLayout />
+					)}
 				</div>
 				<MigrationDialog />
 			</div>
@@ -117,11 +130,13 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 				</div>
 			)}
 			<AivpHistoryDialog controller={controller} open={historyOpen} onOpenChange={setHistoryOpen} />
-			<AivpExportDialog
-				controller={controller}
-				open={exportOpen}
-				onOpenChange={setExportOpen}
-			/>
+			{!replacing && (
+				<AivpExportDialog
+					controller={controller}
+					open={exportOpen}
+					onOpenChange={setExportOpen}
+				/>
+			)}
 			<AivpConflictDialog
 				controller={controller}
 				open={conflict !== null && conflictOpen}

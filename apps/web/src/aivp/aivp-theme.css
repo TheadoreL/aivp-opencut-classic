@@ -219,6 +219,21 @@ html.aivp-editor :focus-visible {
 	line-height: 1.7;
 }
 
+.aivp-panel-status {
+	height: 100%;
+	width: 100%;
+	display: grid;
+	place-items: center;
+	color: #b3c3d4;
+	font-size: 13px;
+}
+
+.aivp-panel-status > div {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
 .aivp-closing {
 	position: fixed;
 	inset: 0;

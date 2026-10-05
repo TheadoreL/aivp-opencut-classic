@@ -99,6 +99,18 @@ function summarise(project: Record<string, unknown>, mediaCount: number): Snapsh
 	return { sceneCount: scenes.length, trackCount, clipCount, textCount, mediaCount };
 }
 
+/** Resolves after React committed pending updates and the browser painted (two frames). */
+function afterNextPaint(): Promise<void> {
+	return new Promise((resolve) => {
+		const done = (): void => resolve();
+		if (typeof requestAnimationFrame !== "function") {
+			setTimeout(done, 32);
+			return;
+		}
+		requestAnimationFrame(() => requestAnimationFrame(done));
+	});
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 	return Promise.race([
 		promise,
@@ -408,7 +420,8 @@ export class AivpEditorController {
 			state.access === "active" &&
 			state.conflict === null &&
 			state.workspace?.permissions.edit === true &&
-			state.server.phase !== "stopped"
+			state.server.phase !== "stopped" &&
+			!state.replacing
 		);
 	}
 
@@ -437,6 +450,11 @@ export class AivpEditorController {
 	}
 
 	private async performUpload(overrideBase?: number): Promise<void> {
+		// Never capture a project that is being replaced (scenes may be cleared mid-load).
+		if (aivpState().replacing) {
+			this.scheduleUpload(UPLOAD_DEBOUNCE_MS);
+			return;
+		}
 		const record = this.record;
 		const workspace = aivpState().workspace;
 		if (!record || !workspace) return;
@@ -578,9 +596,9 @@ export class AivpEditorController {
 		} catch {
 			// The recovery copy above already holds the local content.
 		}
-		await this.importServerSnapshot(latest.data);
-		await this.editor.project.loadProject({ id: this.workspaceId() });
-		await this.adoptLoadedAsSynced(latest.data.revisionNumber);
+		const snapshot = latest.data;
+		if (!(await this.replaceLiveProject(() => this.importServerSnapshot(snapshot)))) return;
+		await this.adoptLoadedAsSynced(snapshot.revisionNumber);
 		useAivpStore.getState().set({
 			conflict: null,
 			notice: "已加载服务器版本；本机未同步的内容已保存为恢复副本",
@@ -594,13 +612,75 @@ export class AivpEditorController {
 		const record = this.record;
 		const copy = record?.recoveryCopies[0];
 		if (!record || !copy) return;
-		const serialized = JSON.parse(copy.content) as Record<string, unknown>;
-		await this.editor.project.importSerializedProject({ serialized });
-		await this.editor.project.loadProject({ id: this.workspaceId() });
-		this.record = { ...record, recoveryCopies: record.recoveryCopies.slice(1) };
-		await writeSyncRecord(this.record);
+		let serialized: Record<string, unknown>;
+		try {
+			serialized = JSON.parse(copy.content) as Record<string, unknown>;
+		} catch {
+			useAivpStore.getState().set({ notice: "本机副本已损坏，无法恢复" });
+			return;
+		}
+		try {
+			await this.editor.save.flush();
+		} catch {
+			useAivpStore.getState().set({ notice: "本机保存失败，未恢复副本（当前修改仍保留在编辑器中）" });
+			return;
+		}
+		// The work being replaced is kept as a recovery copy too (unless it is what the server holds).
+		let next: LocalSyncRecord = { ...record, recoveryCopies: record.recoveryCopies.slice(1) };
+		const current = this.editor.project.serializeActiveProject();
+		if (current && (await projectHash(current)) !== record.syncedProjectHash) {
+			next = withRecoveryCopy(next, {
+				savedAt: Date.now(),
+				baseRevision: record.baseRevision,
+				reason: "conflict",
+				content: JSON.stringify(current),
+			});
+		}
+		this.record = next;
+		await writeSyncRecord(next);
+		if (!(await this.replaceLiveProject(() => this.editor.project.importSerializedProject({ serialized })))) return;
 		useAivpStore.getState().set({ notice: "已恢复本机副本，将作为新版本同步" });
 		this.editor.save.markDirty({ force: true });
+	}
+
+	/**
+	 * Replaces the project open in the editor with content written to local
+	 * storage by `write`, without the mounted editor ever observing the
+	 * intermediate state: playback stops, selection clears, autosave pauses
+	 * (no timer can write the outgoing or a half-loaded project), the editor
+	 * panels unmount, the project reloads, undo history of the previous
+	 * content is dropped (it must not apply to the new one), then the panels
+	 * mount again. If writing fails nothing was replaced; if loading fails the
+	 * editor shows a recoverable error instead of a broken timeline.
+	 */
+	private async replaceLiveProject(write: () => Promise<void>): Promise<boolean> {
+		const editor = this.editor;
+		const workspaceId = this.workspaceId();
+		editor.playback.pause();
+		editor.selection.clearSelection();
+		editor.save.pause();
+		useAivpStore.getState().set({ replacing: true });
+		await afterNextPaint();
+		let written = false;
+		try {
+			await write();
+			written = true;
+			await editor.project.loadProject({ id: workspaceId });
+			editor.command.clear();
+			editor.selection.clearSelection();
+			return true;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "未知错误";
+			if (!written) {
+				useAivpStore.getState().set({ notice: `未能替换剪辑内容，当前工程保持不变：${message}` });
+				return false;
+			}
+			useAivpStore.getState().set({ phase: "failed", failure: `载入剪辑内容失败：${message}。请重新打开本集剪辑（本机副本与服务器版本均已保留）。` });
+			return false;
+		} finally {
+			editor.save.resume();
+			useAivpStore.getState().set({ replacing: false });
+		}
 	}
 
 	// ---- version history -------------------------------------------------------------------------
@@ -666,8 +746,9 @@ export class AivpEditorController {
 			});
 			await writeSyncRecord(this.record);
 		}
-		await this.importServerSnapshot(inspected.snapshot);
-		await this.editor.project.loadProject({ id: this.workspaceId() });
+		if (!(await this.replaceLiveProject(() => this.importServerSnapshot(inspected.snapshot)))) {
+			return { ok: false, message: aivpState().failure ?? aivpState().notice ?? "未能载入该历史版本" };
+		}
 		this.record = { ...this.record, baseRevision: currentRevision };
 		await writeSyncRecord(this.record);
 		await this.uploadNow({ overrideBase: currentRevision });
@@ -695,7 +776,7 @@ export class AivpEditorController {
 	 */
 	async syncMedia({ only }: { only?: readonly string[] } = {}): Promise<void> {
 		const store = useAivpStore.getState();
-		if (store.mediaSyncing) return;
+		if (store.mediaSyncing || store.replacing) return;
 		if (store.access !== "active") {
 			this.computeMissing();
 			return;

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import type { EditorCore } from "@/core";
 import { TracksSnapshotCommand } from "@/commands/timeline";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,40 +26,47 @@ import {
 	TITLE_CARD_TEXT_MAX,
 	titleCardBoundaryKey,
 	titleCardBoundaryOptions,
+	titleCardFitProblem,
 	titleCardFontFamily,
 	titleCardInputProblem,
 } from "../title-card";
+
+/** Default boundary when the dialog opens: before the selected main-track clip, else the end. */
+function initialBoundaryKey({ editor }: { editor: EditorCore }): string {
+	const tracks = editor.scenes.getActiveSceneOrNull()?.tracks ?? null;
+	if (tracks === null) return "end";
+	const selectedMain = editor.selection
+		.getSelectedElements()
+		.find((ref) => ref.trackId === tracks.main.id && tracks.main.elements.some((element) => element.id === ref.elementId));
+	return selectedMain ? titleCardBoundaryKey({ kind: "before", elementId: selectedMain.elementId }) : "end";
+}
 
 /**
  * 插入字幕卡: white centred title on a full black frame, inserted at an
  * explicit boundary of the main track. Later elements on every track move
  * by the same interval; the insertion is one undo step and goes through the
  * normal local/server saves. Nothing happens until “插入”.
+ *
+ * The host mounts this only while it is open, so every opening starts from
+ * the live selection (lazy state initialisers, no initialising effects) and
+ * closing discards the form.
  */
-export function AivpTitleCardDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function AivpTitleCardDialog({ onClose }: { onClose: () => void }) {
 	const editor = useEditor();
 	const tracks = useEditor((core) => core.scenes.getActiveSceneOrNull()?.tracks ?? null);
-	const selected = useEditor((core) => core.selection.getSelectedElements());
+	const canvasSize = useEditor((core) => core.project.getActiveOrNull()?.settings.canvasSize ?? null);
 	const ids = { text: useId(), seconds: useId(), boundary: useId(), error: useId() };
 	const [text, setText] = useState("");
 	const [secondsInput, setSecondsInput] = useState(String(TITLE_CARD_DEFAULT_SECONDS));
-	const [boundaryKey, setBoundaryKey] = useState("end");
+	const [boundaryKey, setBoundaryKey] = useState(() => initialBoundaryKey({ editor }));
 	const [error, setError] = useState<string | null>(null);
 
 	const options = useMemo(() => (tracks === null ? [] : titleCardBoundaryOptions({ tracks })), [tracks]);
 
-	// On open: default to the boundary before the selected main-track clip (else the end); keep the typed text.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: only re-evaluated when the dialog opens
-	useEffect(() => {
-		if (!open || tracks === null) return;
-		const selectedMain = selected.find((ref) => ref.trackId === tracks.main.id && tracks.main.elements.some((element) => element.id === ref.elementId));
-		setBoundaryKey(selectedMain ? titleCardBoundaryKey({ kind: "before", elementId: selectedMain.elementId }) : "end");
-		setSecondsInput(String(TITLE_CARD_DEFAULT_SECONDS));
-		setError(null);
-	}, [open]);
-
 	const seconds = Number(secondsInput.trim());
-	const inputProblem = titleCardInputProblem({ text, seconds: secondsInput.trim() === "" ? Number.NaN : seconds });
+	const inputProblem =
+		titleCardInputProblem({ text, seconds: secondsInput.trim() === "" ? Number.NaN : seconds }) ??
+		(canvasSize === null ? null : titleCardFitProblem({ text, canvasSize }));
 	const option = options.find((entry) => entry.key === boundaryKey) ?? null;
 
 	const insert = () => {
@@ -86,12 +94,16 @@ export function AivpTitleCardDialog({ open, onOpenChange }: { open: boolean; onO
 		}
 		editor.command.execute({ command: new TracksSnapshotCommand({ before: scene.tracks, after: plan.after }) });
 		useAivpStore.getState().set({ notice: `已在${chosen.boundary.kind === "end" ? "时间线末尾" : "所选片段之前"}插入 ${seconds} 秒字幕卡，后续片段与音频已同步后移，可撤销` });
-		setText("");
-		onOpenChange(false);
+		onClose();
 	};
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog
+			open
+			onOpenChange={(next) => {
+				if (!next) onClose();
+			}}
+		>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>插入字幕卡</DialogTitle>
@@ -151,7 +163,7 @@ export function AivpTitleCardDialog({ open, onOpenChange }: { open: boolean; onO
 					)}
 				</DialogBody>
 				<DialogFooter>
-					<Button variant="ghost" onClick={() => onOpenChange(false)}>
+					<Button variant="ghost" onClick={onClose}>
 						取消
 					</Button>
 					<Button disabled={inputProblem !== null || option === null || tracks === null} onClick={insert}>

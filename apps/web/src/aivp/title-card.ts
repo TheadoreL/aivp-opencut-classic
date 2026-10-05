@@ -1,5 +1,6 @@
 import { registerDefaultGraphics } from "@/graphics";
 import {
+	type AudioTrack,
 	buildGraphicElement,
 	calculateTotalDuration,
 	type GraphicElement,
@@ -10,6 +11,7 @@ import {
 	type TextTrack,
 	type TimelineElement,
 	type TimelineTrack,
+	type VideoTrack,
 } from "@/timeline";
 import { DEFAULTS } from "@/timeline/defaults";
 import { buildEmptyTrack } from "@/timeline/placement/track-factory";
@@ -90,8 +92,7 @@ export function titleCardInputProblem({ text, seconds }: { text: string; seconds
 	if (trimmed === "") return "请输入字幕卡文字";
 	if ([...trimmed].length > TITLE_CARD_TEXT_MAX) return `字幕卡文字最多 ${TITLE_CARD_TEXT_MAX} 个字`;
 	if (trimmed.split("\n").length > TITLE_CARD_LINES_MAX) return `字幕卡最多 ${TITLE_CARD_LINES_MAX} 行`;
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
-	if (/[\u0000-\u0009\u000b-\u001f\u007f]/.test(trimmed)) return "字幕卡文字包含不可见的控制字符";
+	if ([...trimmed].some((char) => isControlCharacter({ char }))) return "字幕卡文字包含不可见的控制字符";
 	if (!Number.isFinite(seconds) || seconds < TITLE_CARD_DURATION_MIN_SECONDS || seconds > TITLE_CARD_DURATION_MAX_SECONDS) {
 		return `时长必须在 ${TITLE_CARD_DURATION_MIN_SECONDS}–${TITLE_CARD_DURATION_MAX_SECONDS} 秒之间`;
 	}
@@ -106,26 +107,68 @@ export function titleCardFontFamily(): string {
 	return "Noto Sans CJK SC";
 }
 
-/**
- * Font size (editor units, scaled by canvas height / FONT_SIZE_SCALE_REFERENCE)
- * that keeps the longest line within ~85% of the canvas width. CJK glyphs
- * are about one em wide, other characters about 0.6 em.
- */
-function titleFontSize({ lines, canvasWidth, canvasHeight }: { lines: string[]; canvasWidth: number; canvasHeight: number }): number {
-	const preferred = 6;
-	const ems = Math.max(1, ...lines.map((line) => [...line].reduce((sum, char) => sum + (/[⺀-￯]/.test(char) ? 1 : 0.6), 0)));
-	const pxPerUnit = canvasHeight / FONT_SIZE_SCALE_REFERENCE;
-	const fitting = (canvasWidth * 0.85) / ems / pxPerUnit;
-	return Math.max(2, Math.min(preferred, Math.floor(fitting * 10) / 10));
+/** C0 controls except the line feed, and DEL (checked by code point; no control-character regex). */
+function isControlCharacter({ char }: { char: string }): boolean {
+	const code = char.codePointAt(0) ?? 0;
+	return (code < 0x20 && code !== 0x0a) || code === 0x7f;
 }
 
-function shiftElements<TElement extends TimelineElement>(elements: TElement[], boundary: MediaTime, duration: MediaTime): TElement[] {
+/** Wide (CJK / full-width / East Asian) code points, estimated at one em. */
+function isWideCharacter({ char }: { char: string }): boolean {
+	const code = char.codePointAt(0) ?? 0;
+	return (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe30 && code <= 0xfe4f) || (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6) || code >= 0x20000;
+}
+
+/** Preferred title size in editor font units (scaled by canvas height / FONT_SIZE_SCALE_REFERENCE). */
+const TITLE_PREFERRED_FONT_SIZE = 6;
+/** Smallest title glyph we accept, as a fraction of the shorter canvas side (≈32 px at 1080). */
+const TITLE_MIN_GLYPH_FRACTION = 0.03;
+/** Usable width for the longest line. */
+const TITLE_WIDTH_FRACTION = 0.85;
+
+/**
+ * Bold title size that keeps the longest line within 85% of the canvas
+ * width, using a conservative width estimate (wide glyphs 1.05 em, others
+ * 0.7 em). Returns null when even the smallest readable size cannot fit:
+ * the text is then refused instead of being clipped or shrunk unreadably.
+ */
+function titleFontSize({ lines, canvasSize }: { lines: string[]; canvasSize: { width: number; height: number } }): number | null {
+	const ems = Math.max(1, ...lines.map((line) => [...line].reduce((sum, char) => sum + (isWideCharacter({ char }) ? 1.05 : 0.7), 0)));
+	const pxPerUnit = canvasSize.height / FONT_SIZE_SCALE_REFERENCE;
+	const fitting = Math.floor(((canvasSize.width * TITLE_WIDTH_FRACTION) / ems / pxPerUnit) * 10) / 10;
+	const minimum = (Math.min(canvasSize.width, canvasSize.height) * TITLE_MIN_GLYPH_FRACTION) / pxPerUnit;
+	if (!Number.isFinite(fitting) || fitting < minimum) return null;
+	return Math.min(TITLE_PREFERRED_FONT_SIZE, fitting);
+}
+
+/** Null when the text can be shown readably on this canvas; otherwise why not (no claim of fit when impossible). */
+export function titleCardFitProblem({ text, canvasSize }: { text: string; canvasSize: { width: number; height: number } }): string | null {
+	if (!(canvasSize.width > 0 && canvasSize.height > 0)) return "画布尺寸无效";
+	const content = text.trim();
+	if (content === "") return null;
+	return titleFontSize({ lines: content.split("\n"), canvasSize }) === null ? "单行文字过长，在当前画布宽度内无法以可读字号完整显示；请换行或缩短" : null;
+}
+
+function shiftElements<TElement extends TimelineElement>({ elements, boundary, duration }: { elements: TElement[]; boundary: MediaTime; duration: MediaTime }): TElement[] {
 	return elements.map((element) => (element.startTime >= boundary ? { ...element, startTime: addMediaTime({ a: element.startTime, b: duration }) } : element));
 }
 
-function shiftTrack<TTrack extends TimelineTrack>(track: TTrack, boundary: MediaTime, duration: MediaTime): TTrack {
-	return { ...track, elements: shiftElements(track.elements as TimelineElement[], boundary, duration) } as TTrack;
+/** The same interval shift on every track type (narrowed by the track discriminant, no assertions). */
+function shiftOverlayTrack({ track, boundary, duration }: { track: OverlayTrack; boundary: MediaTime; duration: MediaTime }): OverlayTrack {
+	switch (track.type) {
+		case "video":
+			return { ...track, elements: shiftElements({ elements: track.elements, boundary, duration }) };
+		case "text":
+			return { ...track, elements: shiftElements({ elements: track.elements, boundary, duration }) };
+		case "graphic":
+			return { ...track, elements: shiftElements({ elements: track.elements, boundary, duration }) };
+		case "effect":
+			return { ...track, elements: shiftElements({ elements: track.elements, boundary, duration }) };
+	}
 }
+
+const isVisibleGraphicTrack = (track: OverlayTrack): track is GraphicTrack => track.type === "graphic" && !track.hidden;
+const isVisibleTextTrack = (track: OverlayTrack): track is TextTrack => track.type === "text" && !track.hidden;
 
 export function planTitleCardInsertion({
 	tracks,
@@ -142,8 +185,11 @@ export function planTitleCardInsertion({
 	canvasSize: { width: number; height: number };
 	fontFamily: string;
 }): TitleCardPlan {
-	const problem = titleCardInputProblem({ text, seconds });
+	const problem = titleCardInputProblem({ text, seconds }) ?? titleCardFitProblem({ text, canvasSize });
 	if (problem !== null) return { ok: false, reason: problem };
+	const content = text.trim();
+	const fontSize = titleFontSize({ lines: content.split("\n"), canvasSize });
+	if (fontSize === null) return { ok: false, reason: "单行文字过长，在当前画布宽度内无法以可读字号完整显示；请换行或缩短" };
 	const boundaryTime = resolveTitleCardBoundary({ tracks, boundary });
 	if (boundaryTime === null) return { ok: false, reason: "所选插入位置的片段已不在主轨上（时间线已变化），请重新选择" };
 	const duration = mediaTimeFromSeconds({ seconds });
@@ -156,23 +202,19 @@ export function planTitleCardInsertion({
 		return { ok: false, reason: `${names}${crossing.length > 3 ? ` 等 ${crossing.length} 个片段` : ""}跨越所选插入位置；为避免拆分或错位，未做任何修改。请先调整这些片段或选择其他位置` };
 	}
 
-	const shiftedOverlay: OverlayTrack[] = tracks.overlay.map((track) => shiftTrack(track, boundaryTime, duration));
-	const main = shiftTrack(tracks.main, boundaryTime, duration);
-	const audio = tracks.audio.map((track) => shiftTrack(track, boundaryTime, duration));
+	const shift = { boundary: boundaryTime, duration };
+	const shiftedOverlay: OverlayTrack[] = tracks.overlay.map((track) => shiftOverlayTrack({ track, ...shift }));
+	const main: VideoTrack = { ...tracks.main, elements: shiftElements({ elements: tracks.main.elements, ...shift }) };
+	const audio: AudioTrack[] = tracks.audio.map((track) => ({ ...track, elements: shiftElements({ elements: track.elements, ...shift }) }));
 
 	// After the shift [boundary, boundary + duration) is empty on every track (nothing crossed it).
-	// Overlay index 0 renders on top: the title must sit above the black frame.
-	let graphicIndex = shiftedOverlay.findIndex((track) => track.type === "graphic" && !track.hidden);
-	if (graphicIndex < 0) {
-		shiftedOverlay.push(buildEmptyTrack({ id: generateUUID(), type: "graphic", name: "字幕卡底色" }));
-		graphicIndex = shiftedOverlay.length - 1;
-	}
-	let textIndex = shiftedOverlay.findIndex((track, index) => index < graphicIndex && track.type === "text" && !track.hidden);
-	if (textIndex < 0) {
-		shiftedOverlay.unshift(buildEmptyTrack({ id: generateUUID(), type: "text", name: "字幕卡文字" }));
-		textIndex = 0;
-		graphicIndex += 1;
-	}
+	// Overlay index 0 renders on top: the title track must come before the black frame's track.
+	const existingGraphic = shiftedOverlay.find(isVisibleGraphicTrack) ?? null;
+	const graphicTrack: GraphicTrack = existingGraphic ?? buildEmptyTrack({ id: generateUUID(), type: "graphic", name: "字幕卡底色" });
+	const withGraphic: OverlayTrack[] = existingGraphic === null ? [...shiftedOverlay, graphicTrack] : shiftedOverlay;
+	const existingText = withGraphic.slice(0, withGraphic.indexOf(graphicTrack)).find(isVisibleTextTrack) ?? null;
+	const textTrack: TextTrack = existingText ?? buildEmptyTrack({ id: generateUUID(), type: "text", name: "字幕卡文字" });
+	const ordered: OverlayTrack[] = existingText === null ? [textTrack, ...withGraphic] : withGraphic;
 
 	// Full-frame black: the 512² graphic is contained to min(W,H), so scale each axis to cover (1% overscan).
 	registerDefaultGraphics();
@@ -197,8 +239,6 @@ export function planTitleCardInsertion({
 		duration,
 	};
 
-	const content = text.trim();
-	const lines = content.split("\n");
 	const textElementId = generateUUID();
 	const title: TextElement = {
 		...DEFAULTS.text.element,
@@ -210,7 +250,7 @@ export function planTitleCardInsertion({
 			...DEFAULTS.text.element.params,
 			content,
 			fontFamily,
-			fontSize: titleFontSize({ lines, canvasWidth: canvasSize.width, canvasHeight: canvasSize.height }),
+			fontSize,
 			color: "#ffffff",
 			textAlign: "center",
 			fontWeight: "bold",
@@ -220,10 +260,11 @@ export function planTitleCardInsertion({
 		},
 	};
 
-	const graphicTrack = shiftedOverlay[graphicIndex] as GraphicTrack;
-	shiftedOverlay[graphicIndex] = { ...graphicTrack, elements: [...graphicTrack.elements, background] };
-	const textTrack = shiftedOverlay[textIndex] as TextTrack;
-	shiftedOverlay[textIndex] = { ...textTrack, elements: [...textTrack.elements, title] };
+	const overlay = ordered.map((track): OverlayTrack => {
+		if (track === graphicTrack) return { ...graphicTrack, elements: [...graphicTrack.elements, background] };
+		if (track === textTrack) return { ...textTrack, elements: [...textTrack.elements, title] };
+		return track;
+	});
 
-	return { ok: true, after: { overlay: shiftedOverlay, main, audio }, boundaryTime, duration, textElementId, textTrackId: textTrack.id };
+	return { ok: true, after: { overlay, main, audio }, boundaryTime, duration, textElementId, textTrackId: textTrack.id };
 }

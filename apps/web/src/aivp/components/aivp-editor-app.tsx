@@ -137,7 +137,8 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 				</div>
 			)}
 			<AivpHistoryDialog controller={controller} open={historyOpen} onOpenChange={setHistoryOpen} />
-			{!replacing && <AivpTitleCardDialog open={titleCardOpen && !closing} onOpenChange={setTitleCardOpen} />}
+			{/* Mounted only while open: every opening starts from the live selection and timeline. */}
+			{!replacing && titleCardOpen && !closing && <AivpTitleCardDialog onClose={() => setTitleCardOpen(false)} />}
 			{!replacing && (
 				<AivpExportDialog
 					controller={controller}

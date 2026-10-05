@@ -55,7 +55,9 @@ const nextConfig: NextConfig = {
  * the `*.aivp.tsx` app entries (the editor), packaged into the AIVP desktop
  * application and served from its own controlled origin. No BotId, content
  * collections, standalone server, remote images or source maps; nothing
- * needs a Node/Bun server at runtime.
+ * needs a Node/Bun server at runtime. Next.js 16 writes the exported static
+ * site into `distDir` (`.next-aivp/`); the AIVP desktop build copies the served
+ * files from there (apps/desktop/scripts/copy-editor.mjs in the AIVP repo).
  */
 const aivpEditorConfig: NextConfig = {
 	// The embedded editor holds one stateful host session per window; no double effects.

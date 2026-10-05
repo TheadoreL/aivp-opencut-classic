@@ -11,7 +11,9 @@ Nothing is replaced by a demo timeline or a JSON "export".
 
 ## Build
 
-`bun run build:aivp` (root) → `apps/web/out/`: a static export of the
+`bun run build:aivp` (root) → `apps/web/.next-aivp/` (Next.js 16 writes the
+static export into the configured `distDir`, next to its own build
+bookkeeping, which the AIVP desktop packaging step filters out): a static export of the
 `*.aivp.tsx` app entries only (`AIVP_EDITOR_BUILD=1`, see
 `apps/web/next.config.ts`). The AIVP desktop shell packages these files and
 serves them from its own `aivp-editor://classic` origin. No Node/Bun server

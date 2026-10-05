@@ -1,0 +1,250 @@
+/*
+ * AIVP 星海创作 VI v1.0 mapped onto OpenCut's design tokens (AIVP build only).
+ * Space #070c16, panel #111e2e, raised #182b3d, ice-cyan #83d6e4, text #e9f1f8.
+ * Dense editing surfaces keep a calm, low-contrast background; colour is
+ * reserved for selection, focus and status.
+ */
+
+html.aivp-editor.dark {
+	--background: #0c1422;
+	--foreground: #e9f1f8;
+	--card: #111e2e;
+	--card-foreground: #e9f1f8;
+	--popover: #111e2e;
+	--popover-hover: #182b3d;
+	--popover-foreground: #e9f1f8;
+	--primary: #83d6e4;
+	--primary-foreground: #082330;
+	--secondary: #193b4b;
+	--secondary-border: #2b5566;
+	--secondary-foreground: #b6eff9;
+	--muted: #2b4055;
+	--muted-foreground: #91a6bc;
+	--accent: #182b3d;
+	--accent-foreground: #e9f1f8;
+	--destructive: #d9675c;
+	--destructive-foreground: #fff4f2;
+	--constructive: #8ad3b1;
+	--constructive-foreground: #072018;
+	--caution: #e8c684;
+	--caution-foreground: #1d1608;
+	--border: #2b4055;
+	--input: #0c1825;
+	--ring: #83d6e4;
+	--sidebar-background: #0c1422;
+	--sidebar-foreground: #e9f1f8;
+	--sidebar-primary: #83d6e4;
+	--sidebar-primary-foreground: #082330;
+	--sidebar-accent: #182b3d;
+	--sidebar-accent-foreground: #e9f1f8;
+	--sidebar-border: #2b4055;
+	--sidebar-ring: #83d6e4;
+	--sidebar: #0c1422;
+	--font-inter: -apple-system, BlinkMacSystemFont, "PingFang SC",
+		"Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+	color-scheme: dark;
+	background: #070c16;
+}
+
+html.aivp-editor.dark .panel {
+	--background: #111e2e;
+	--foreground: #e9f1f8;
+	--card: #111e2e;
+	--card-foreground: #e9f1f8;
+	--secondary: #193b4b;
+	--secondary-border: #2b5566;
+	--secondary-foreground: #b6eff9;
+	--muted: #2b4055;
+	--muted-foreground: #91a6bc;
+	--accent: #182b3d;
+	--accent-foreground: #e9f1f8;
+	--border: #26394c;
+	--input: #182b3d;
+	--ring: #83d6e4;
+}
+
+html.aivp-editor body {
+	font-family: var(--font-inter);
+	background: #070c16;
+}
+
+html.aivp-editor :focus-visible {
+	outline-color: #b6eff9;
+}
+
+/* AIVP header and status surfaces (prototype `cut.css` header rhythm). */
+.aivp-header {
+	min-height: 56px;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 8px 16px;
+	border-bottom: 1px solid #25374b;
+	background: #091321e6;
+	flex-wrap: wrap;
+}
+
+.aivp-brand {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	white-space: nowrap;
+	color: #e9f1f8;
+}
+
+.aivp-brand small {
+	font-size: 12px;
+	font-weight: 500;
+	color: #a5b9cf;
+}
+
+.aivp-crumbs {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	font-size: 13px;
+	color: #a5b9cf;
+}
+
+.aivp-crumbs button {
+	color: #a5b9cf;
+	background: none;
+	border: 0;
+	padding: 2px 0;
+	cursor: pointer;
+	font: inherit;
+}
+
+.aivp-crumbs button:hover {
+	color: #83d6e4;
+}
+
+.aivp-crumbs strong {
+	color: #e9f1f8;
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 320px;
+}
+
+.aivp-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 9px;
+	border: 1px solid #2b4055;
+	border-radius: 999px;
+	font-size: 12px;
+	color: #b3c3d4;
+	white-space: nowrap;
+}
+
+.aivp-status::before {
+	content: "";
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.85;
+}
+
+.aivp-status--ok {
+	color: #8ad3b1;
+	border-color: #2f5c4a;
+}
+
+.aivp-status--busy {
+	color: #83d6e4;
+	border-color: #2b5566;
+}
+
+.aivp-status--warn {
+	color: #e8c684;
+	border-color: #6b5a3a;
+}
+
+.aivp-status--danger {
+	color: #ffb4ac;
+	border-color: #6b3a36;
+}
+
+.aivp-banner {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 16px;
+	border-bottom: 1px solid #25374b;
+	font-size: 13px;
+	flex-wrap: wrap;
+}
+
+.aivp-banner--warn {
+	color: #e8c684;
+	background: #1b1a16;
+}
+
+.aivp-banner--danger {
+	color: #ffb4ac;
+	background: #21131a;
+}
+
+.aivp-banner--info {
+	color: #b6eff9;
+	background: #0f2230;
+}
+
+.aivp-screen {
+	height: 100vh;
+	width: 100vw;
+	display: grid;
+	place-items: center;
+	background: radial-gradient(ellipse at 80% 30%, #15304328, transparent 45%),
+		#070c16;
+	color: #e9f1f8;
+}
+
+.aivp-screen > div {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 14px;
+	max-width: 520px;
+	text-align: center;
+	font-size: 14px;
+	line-height: 1.7;
+}
+
+.aivp-media-list {
+	max-height: 360px;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.aivp-media-row {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 8px;
+	padding: 6px 8px;
+	border: 1px solid #26394c;
+	border-radius: 6px;
+	font-size: 12px;
+}
+
+.aivp-media-row small {
+	display: block;
+	color: #91a6bc;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html.aivp-editor * {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}

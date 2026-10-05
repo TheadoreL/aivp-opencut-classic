@@ -51,4 +51,27 @@ const nextConfig: NextConfig = {
 	},
 };
 
-export default withContentCollections(withBotId(nextConfig));
+/**
+ * AIVP embedded editor build (`bun run build:aivp`): a static export of only
+ * the `*.aivp.tsx` app entries (the editor), packaged into the AIVP desktop
+ * application and served from its own controlled origin. No BotId, content
+ * collections, standalone server, remote images or source maps; nothing
+ * needs a Node/Bun server at runtime.
+ */
+const aivpEditorConfig: NextConfig = {
+	reactStrictMode: true,
+	productionBrowserSourceMaps: false,
+	output: "export",
+	distDir: ".next-aivp",
+	pageExtensions: ["aivp.tsx", "aivp.ts"],
+	poweredByHeader: false,
+	images: { unoptimized: true },
+	env: { NEXT_PUBLIC_AIVP_EDITOR: "1" },
+	compiler: {
+		removeConsole: { exclude: ["error", "warn"] },
+	},
+};
+
+export default process.env.AIVP_EDITOR_BUILD === "1"
+	? aivpEditorConfig
+	: withContentCollections(withBotId(nextConfig));

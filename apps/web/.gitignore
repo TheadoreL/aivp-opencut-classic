@@ -12,3 +12,6 @@
 next-env.d.ts
 
 *.tsbuildinfo
+# AIVP embedded editor static build (bun run build:aivp)
+.next-aivp/
+out/

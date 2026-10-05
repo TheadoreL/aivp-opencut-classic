@@ -132,6 +132,39 @@ class StorageService {
 	}
 
 	async saveProject({ project }: { project: TProject }): Promise<void> {
+		const serializedProject = this.serializeProject({ project });
+		await this.projectsAdapter.set({
+			key: project.metadata.id,
+			value: serializedProject,
+		});
+	}
+
+	/**
+	 * Stores an already serialized project record as-is (an embedding host's
+	 * snapshot). The caller validates its identity and runs migrations.
+	 */
+	async saveSerializedProject({
+		serialized,
+	}: {
+		serialized: Record<string, unknown>;
+	}): Promise<void> {
+		const metadata = serialized.metadata as { id?: unknown } | undefined;
+		if (
+			typeof metadata !== "object" ||
+			metadata === null ||
+			typeof metadata.id !== "string" ||
+			metadata.id === ""
+		) {
+			throw new Error("The stored project has no id");
+		}
+		await this.projectsAdapter.set({
+			key: metadata.id,
+			value: serialized as unknown as SerializedProject,
+		});
+	}
+
+	/** The exact record `saveProject` persists (dates as ISO strings, no audio buffers). */
+	serializeProject({ project }: { project: TProject }): SerializedProject {
 		const duration =
 			project.metadata.duration ??
 			getProjectDurationFromScenes({ scenes: project.scenes });
@@ -161,10 +194,7 @@ class StorageService {
 			timelineViewState: project.timelineViewState,
 		};
 
-		await this.projectsAdapter.set({
-			key: project.metadata.id,
-			value: serializedProject,
-		});
+		return serializedProject;
 	}
 
 	async loadProject({

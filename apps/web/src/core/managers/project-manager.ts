@@ -7,7 +7,12 @@ import type {
 	TProjectSettings,
 	TTimelineViewState,
 } from "@/project/types";
-import type { ExportOptions, ExportResult, ExportState } from "@/export";
+import type {
+	ExportOptions,
+	ExportResult,
+	ExportState,
+	ExportStreamChunk,
+} from "@/export";
 import { storageService } from "@/services/storage/service";
 import { toast } from "sonner";
 import { generateUUID } from "@/utils/id";
@@ -79,11 +84,21 @@ export class ProjectManager {
 		await this.storageMigrationPromise;
 	}
 
-	async createNewProject({ name }: { name: string }): Promise<string> {
+	/**
+	 * Creates and activates a new project. `id` lets an embedding host bind
+	 * the project to its own stable identity (AIVP: the edit workspace id).
+	 */
+	async createNewProject({
+		name,
+		id,
+	}: {
+		name: string;
+		id?: string;
+	}): Promise<string> {
 		const mainScene = buildDefaultScene({ name: "Main scene", isMain: true });
 		const newProject: TProject = {
 			metadata: {
-				id: generateUUID(),
+				id: id ?? generateUUID(),
 				name,
 				duration: getProjectDurationFromScenes({ scenes: [mainScene] }),
 				createdAt: new Date(),
@@ -173,7 +188,8 @@ export class ProjectManager {
 						await this.saveCurrentProject();
 					}
 				} catch (error) {
-					console.error("Failed to generate project thumbnail:", error);
+					// A thumbnail is cosmetic; the save manager still holds the change as dirty.
+					console.error("Failed to generate or save project thumbnail:", error);
 				}
 			}
 		} catch (error) {
@@ -186,36 +202,107 @@ export class ProjectManager {
 		}
 	}
 
+	/**
+	 * Persists the active project. Failures propagate to the caller (the
+	 * save manager keeps the changes dirty and reports the error) instead of
+	 * being logged and reported as saved.
+	 */
 	async saveCurrentProject(): Promise<void> {
 		if (!this.active) return;
 
+		const scenes = this.editor.scenes.getScenes();
+		const updatedProject = {
+			...this.active,
+			scenes,
+			metadata: {
+				...this.active.metadata,
+				duration: getProjectDurationFromScenes({ scenes }),
+				updatedAt: new Date(),
+			},
+		};
+
 		try {
-			const scenes = this.editor.scenes.getScenes();
-			const updatedProject = {
+			await storageService.saveProject({ project: updatedProject });
+		} catch (error) {
+			console.error("Failed to save project:", error);
+			throw error instanceof Error
+				? error
+				: new Error("Failed to save project");
+		}
+		// Only adopt the saved state when the active project is still the one that was saved.
+		// Fields changed while the save was in flight (thumbnail, view state) are kept.
+		if (this.active?.metadata.id === updatedProject.metadata.id) {
+			this.active = {
 				...this.active,
 				scenes,
 				metadata: {
 					...this.active.metadata,
-					duration: getProjectDurationFromScenes({ scenes }),
-					updatedAt: new Date(),
+					duration: updatedProject.metadata.duration,
+					updatedAt: updatedProject.metadata.updatedAt,
 				},
 			};
-
-			await storageService.saveProject({ project: updatedProject });
-			this.active = updatedProject;
-			this.updateMetadata(updatedProject);
-		} catch (error) {
-			console.error("Failed to save project:", error);
+			this.updateMetadata(this.active);
 		}
 	}
 
-	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
+	/**
+	 * Writes an externally provided serialized project (an embedding host's
+	 * stored snapshot) into local storage so `loadProject` can open it.
+	 * Snapshots from a newer editor format are refused; older ones run
+	 * through the regular storage migrations first.
+	 */
+	async importSerializedProject({
+		serialized,
+	}: {
+		serialized: Record<string, unknown>;
+	}): Promise<void> {
+		const version =
+			typeof serialized.version === "number" ? serialized.version : null;
+		if (version === null) {
+			throw new Error("The stored project has no format version");
+		}
+		if (version > CURRENT_PROJECT_VERSION) {
+			throw new Error(
+				`The stored project was created by a newer editor (format ${version}); update the application to open it`,
+			);
+		}
+		await this.ensureStorageMigrations();
+		await storageService.saveSerializedProject({ serialized });
+		if (version < CURRENT_PROJECT_VERSION) {
+			await runStorageMigrations({
+				migrations,
+				onProgress: (progress: MigrationProgress) => {
+					this.migrationState = progress;
+					this.notify();
+				},
+			});
+		}
+	}
+
+	/** Serialized form of the active project as it is persisted locally. */
+	serializeActiveProject(): Record<string, unknown> | null {
+		if (!this.active) return null;
+		const scenes = this.editor.scenes.getScenes();
+		return storageService.serializeProject({
+			project: { ...this.active, scenes },
+		}) as unknown as Record<string, unknown>;
+	}
+
+	async export({
+		options,
+		writable,
+	}: {
+		options: ExportOptions;
+		/** Host-provided destination; the result then carries `streamed` instead of a buffer. */
+		writable?: WritableStream<ExportStreamChunk>;
+	}): Promise<ExportResult> {
 		this.exportCancelRequested = false;
 		this.exportState = { isExporting: true, progress: 0, result: null };
 		this.notify();
 
 		const result = await this.editor.renderer.exportProject({
 			options,
+			writable,
 			onProgress: ({ progress }) => {
 				this.exportState = { ...this.exportState, progress };
 				this.notify();

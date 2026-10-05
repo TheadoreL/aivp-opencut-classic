@@ -1,6 +1,11 @@
 import type { EditorCore } from "@/core";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
-import type { ExportOptions, ExportResult } from "@/export";
+import type {
+	ExportDetails,
+	ExportOptions,
+	ExportResult,
+	ExportStreamChunk,
+} from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -142,10 +147,13 @@ export class RendererManager {
 		options,
 		onProgress,
 		onCancel,
+		writable,
 	}: {
 		options: ExportOptions;
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
+		/** When given, container bytes are streamed here instead of returned as a buffer. */
+		writable?: WritableStream<ExportStreamChunk>;
 	}): Promise<ExportResult> {
 		const { format, quality, fps, includeAudio } = options;
 
@@ -212,6 +220,23 @@ export class RendererManager {
 			const cancelInterval = setInterval(checkCancel, 100);
 
 			try {
+				const detailsOf = (): ExportDetails | undefined => {
+					const encoded = exporter.getEncodedDetails();
+					return encoded ? { format, ...encoded } : undefined;
+				};
+
+				if (writable) {
+					const completed = await exporter.exportToStream({
+						rootNode: scene,
+						writable,
+					});
+					clearInterval(cancelInterval);
+					if (cancelled || !completed) {
+						return { success: false, cancelled: true };
+					}
+					return { success: true, streamed: true, details: detailsOf() };
+				}
+
 				const buffer = await exporter.export({ rootNode: scene });
 				clearInterval(cancelInterval);
 
@@ -226,6 +251,7 @@ export class RendererManager {
 				return {
 					success: true,
 					buffer,
+					details: detailsOf(),
 				};
 			} finally {
 				clearInterval(cancelInterval);

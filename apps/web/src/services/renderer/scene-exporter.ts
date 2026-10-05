@@ -5,6 +5,8 @@ import {
 	Mp4OutputFormat,
 	WebMOutputFormat,
 	BufferTarget,
+	StreamTarget,
+	type StreamTargetChunk,
 	CanvasSource,
 	AudioBufferSource,
 	QUALITY_LOW,
@@ -79,11 +81,60 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.isCancelled = true;
 	}
 
+	/** Codecs and geometry of the last export (what was actually encoded). */
+	getEncodedDetails(): ExportedStreamDetails | null {
+		return this.encodedDetails;
+	}
+
 	async export({
 		rootNode,
 	}: {
 		rootNode: RootNode;
 	}): Promise<ArrayBuffer | null> {
+		const target = new BufferTarget();
+		const completed = await this.encode({ rootNode, target });
+		if (!completed) return null;
+
+		const buffer = target.buffer;
+		if (!buffer) {
+			this.emit("error", new Error("Failed to export video"));
+			return null;
+		}
+
+		this.emit("complete", buffer);
+		return buffer;
+	}
+
+	/**
+	 * Same encoding as {@link export}, but the container bytes are written
+	 * as positioned chunks to `writable` (file-backed on the host side)
+	 * instead of being collected in one in-memory buffer. MP4 output keeps
+	 * the moov atom at the end (no in-memory fast start). Resolves false when
+	 * cancelled.
+	 */
+	async exportToStream({
+		rootNode,
+		writable,
+	}: {
+		rootNode: RootNode;
+		writable: WritableStream<StreamTargetChunk>;
+	}): Promise<boolean> {
+		const target = new StreamTarget(writable, {
+			chunked: true,
+			chunkSize: 4 * 1024 * 1024,
+		});
+		return this.encode({ rootNode, target, streaming: true });
+	}
+
+	private async encode({
+		rootNode,
+		target,
+		streaming = false,
+	}: {
+		rootNode: RootNode;
+		target: BufferTarget | StreamTarget;
+		streaming?: boolean;
+	}): Promise<boolean> {
 		const fps = this.renderer.fps;
 		const fpsFloat = frameRateToFloat(fps);
 		const ticksPerFrame = Math.round(
@@ -92,11 +143,13 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		const frameCount = Math.floor(rootNode.duration / ticksPerFrame);
 
 		const outputFormat =
-			this.format === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat();
+			this.format === "webm"
+				? new WebMOutputFormat()
+				: new Mp4OutputFormat(streaming ? { fastStart: false } : {});
 
 		const output = new Output({
 			format: outputFormat,
-			target: new BufferTarget(),
+			target,
 		});
 
 		const videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
@@ -125,6 +178,9 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 				bitrate: qualityMap[this.quality],
 			});
 			output.addAudioTrack(audioSource);
+			this.encodedAudioCodec = audioCodec;
+		} else {
+			this.encodedAudioCodec = null;
 		}
 
 		await output.start();
@@ -138,7 +194,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			if (this.isCancelled) {
 				await output.cancel();
 				this.emit("cancelled");
-				return null;
+				return false;
 			}
 
 			const timeTicks = i * ticksPerFrame;
@@ -152,20 +208,35 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		if (this.isCancelled) {
 			await output.cancel();
 			this.emit("cancelled");
-			return null;
+			return false;
 		}
 
 		videoSource.close();
 		await output.finalize();
 		this.emit("progress", 1);
 
-		const buffer = output.target.buffer;
-		if (!buffer) {
-			this.emit("error", new Error("Failed to export video"));
-			return null;
-		}
-
-		this.emit("complete", buffer);
-		return buffer;
+		this.encodedDetails = {
+			videoCodec: this.format === "webm" ? "vp9" : "avc",
+			audioCodec: this.encodedAudioCodec,
+			width: this.renderer.getOutputCanvas().width,
+			height: this.renderer.getOutputCanvas().height,
+			fps,
+			frameCount,
+			durationSeconds: frameCount / fpsFloat,
+		};
+		return true;
 	}
+
+	private encodedAudioCodec: "aac" | "opus" | null = null;
+	private encodedDetails: ExportedStreamDetails | null = null;
+}
+
+export interface ExportedStreamDetails {
+	videoCodec: "avc" | "vp9";
+	audioCodec: "aac" | "opus" | null;
+	width: number;
+	height: number;
+	fps: FrameRate;
+	frameCount: number;
+	durationSeconds: number;
 }

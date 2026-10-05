@@ -14,6 +14,7 @@ import {
 	ColorsIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { IS_AIVP_EDITOR } from "@/aivp/runtime";
 
 export const TAB_KEYS = [
 	"media",
@@ -28,6 +29,15 @@ export const TAB_KEYS = [
 ] as const;
 
 export type Tab = (typeof TAB_KEYS)[number];
+
+/**
+ * Tabs shown in the tab bar. The AIVP build hides tabs that need remote
+ * services (Freesound sounds, remote sticker/logo sources) and the
+ * placeholder "coming soon" tabs.
+ */
+export const VISIBLE_TAB_KEYS: readonly Tab[] = IS_AIVP_EDITOR
+	? ["media", "text", "effects", "captions", "settings"]
+	: TAB_KEYS;
 
 const createHugeiconsIcon =
 	({ icon }: { icon: IconSvgElement }) =>

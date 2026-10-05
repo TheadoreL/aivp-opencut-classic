@@ -23,8 +23,30 @@ export interface ExportOptions {
 export interface ExportResult {
 	success: boolean;
 	buffer?: ArrayBuffer;
+	/** True when the bytes were written to a host-provided stream instead of `buffer`. */
+	streamed?: boolean;
+	/** What was actually encoded (codecs, size, frame rate, duration). */
+	details?: ExportDetails;
 	error?: string;
 	cancelled?: boolean;
+}
+
+export interface ExportDetails {
+	format: ExportFormat;
+	videoCodec: "avc" | "vp9";
+	audioCodec: "aac" | "opus" | null;
+	width: number;
+	height: number;
+	fps: FrameRate;
+	frameCount: number;
+	durationSeconds: number;
+}
+
+/** Positioned container chunk written by a streaming export. */
+export interface ExportStreamChunk {
+	type: "write";
+	data: Uint8Array;
+	position: number;
 }
 
 export interface ExportState {

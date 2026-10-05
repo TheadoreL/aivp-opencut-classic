@@ -127,7 +127,8 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 	);
 }
 
-function EditorRuntimeBindings() {
+/** Keybindings, ripple mode and the unload guard of a loaded editor (also used by the AIVP entry). */
+export function EditorRuntimeBindings() {
 	const editor = useEditor();
 	const rippleEditingEnabled = useTimelineStore(
 		(state) => state.rippleEditingEnabled,

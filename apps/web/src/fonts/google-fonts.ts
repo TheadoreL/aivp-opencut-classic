@@ -1,5 +1,6 @@
 import type { FontAtlas } from "@/fonts/types";
 import { SYSTEM_FONTS } from "@/fonts/system-fonts";
+import { IS_AIVP_EDITOR } from "@/aivp/runtime";
 
 const GOOGLE_FONTS_CSS = "https://fonts.googleapis.com/css2";
 const FONT_ATLAS_PATH = "/fonts/font-atlas.json";
@@ -60,8 +61,13 @@ export async function loadFullFont({
 	weights?: number[];
 }): Promise<void> {
 	if (fullLoaded.has(family)) return;
+	// AIVP: never fetch remote font CSS; the family resolves to an installed font or the default.
+	if (IS_AIVP_EDITOR) {
+		fullLoaded.add(family);
+		return;
+	}
 
-	const url = `${GOOGLE_FONTS_CSS}?family=${encodeGoogleFontsFamily(family)}:wght@${weights.join(";")}&display=swap`;
+	const url =`${GOOGLE_FONTS_CSS}?family=${encodeGoogleFontsFamily(family)}:wght@${weights.join(";")}&display=swap`;
 	const link = document.createElement("link");
 	link.rel = "stylesheet";
 	link.href = url;

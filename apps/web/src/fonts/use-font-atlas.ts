@@ -6,6 +6,7 @@ import {
 } from "@/fonts/google-fonts";
 import type { FontAtlas } from "@/fonts/types";
 import { SYSTEM_FONTS } from "@/fonts/system-fonts";
+import { AIVP_LOCAL_FONTS, IS_AIVP_EDITOR } from "@/aivp/runtime";
 
 type Status = "idle" | "loading" | "error";
 
@@ -45,6 +46,8 @@ export function useFontAtlas({ open }: { open: boolean }) {
 	}, []);
 
 	const fontNames = useMemo(() => {
+		// AIVP: local/system families only; Google families would need a remote download.
+		if (IS_AIVP_EDITOR) return [...AIVP_LOCAL_FONTS].sort();
 		if (!atlas) return [];
 		return [...Object.keys(atlas.fonts), ...SYSTEM_FONTS].sort();
 	}, [atlas]);

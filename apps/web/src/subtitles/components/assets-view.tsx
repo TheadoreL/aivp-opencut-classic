@@ -24,6 +24,7 @@ import { buildCaptionChunks } from "@/transcription/caption";
 import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
 import { parseSubtitleFile } from "@/subtitles/parse";
 import { Spinner } from "@/components/ui/spinner";
+import { IS_AIVP_EDITOR } from "@/aivp/runtime";
 import {
 	Section,
 	SectionContent,
@@ -118,6 +119,8 @@ export function Captions() {
 	};
 
 	const handleGenerateTranscript = async () => {
+		// Defence in depth: the control is hidden in the AIVP build (no model downloads).
+		if (IS_AIVP_EDITOR) return;
 		dispatch({ type: "start", step: "Extracting audio..." });
 		try {
 			const audioBlob = await extractTimelineAudio({
@@ -288,6 +291,12 @@ export function Captions() {
 				className="flex-1"
 			>
 				<SectionContent className="flex flex-col gap-4 h-full pt-1">
+					{IS_AIVP_EDITOR ? (
+						<p className="text-muted-foreground text-sm">
+							导入 SRT / ASS 字幕文件。AIVP 剪辑器不下载在线语音识别模型，因此不提供自动转写。
+						</p>
+					) : (
+					<>
 					<SectionFields>
 						<SectionField label="Language">
 							<Select
@@ -318,6 +327,8 @@ export function Captions() {
 						{isProcessing && <Spinner className="mr-1" />}
 						{isProcessing ? processing.step : "Generate transcript"}
 					</Button>
+					</>
+					)}
 					{error && (
 						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
 							<p className="text-destructive text-sm">{error}</p>

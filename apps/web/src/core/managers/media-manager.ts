@@ -14,16 +14,34 @@ export class MediaManager {
 
 	constructor(private editor: EditorCore) {}
 
+	/**
+	 * Adds and persists a media asset. `id` binds the asset to a stable
+	 * external identity (AIVP: the manifest entry id), so re-importing the
+	 * same source never creates a second bin item; an existing asset with that
+	 * id is returned unchanged. `onError` receives the storage failure (the
+	 * asset is not added in that case).
+	 */
 	async addMediaAsset({
 		projectId,
 		asset,
+		id,
+		onError,
+		ratchetFps = true,
 	}: {
 		projectId: string;
 		asset: Omit<MediaAsset, "id">;
+		id?: string;
+		onError?: (error: unknown) => void;
+		/** False keeps the project frame rate (background bin sync must not change settings). */
+		ratchetFps?: boolean;
 	}): Promise<MediaAsset | null> {
+		if (id !== undefined) {
+			const existing = this.assets.find((entry) => entry.id === id);
+			if (existing) return existing;
+		}
 		const newAsset: MediaAsset = {
 			...asset,
-			id: generateUUID(),
+			id: id ?? generateUUID(),
 		};
 
 		this.assets = [...this.assets, newAsset];
@@ -31,14 +49,17 @@ export class MediaManager {
 
 		try {
 			await storageService.saveMediaAsset({ projectId, mediaAsset: newAsset });
-			this.editor.project.ratchetFpsForImportedMedia({
-				importedAssets: [newAsset],
-			});
+			if (ratchetFps) {
+				this.editor.project.ratchetFpsForImportedMedia({
+					importedAssets: [newAsset],
+				});
+			}
 			return newAsset;
 		} catch (error) {
 			console.error("Failed to save media asset:", error);
 			this.assets = this.assets.filter((asset) => asset.id !== newAsset.id);
 			this.notify();
+			onError?.(error);
 
 			if (storageService.isQuotaExceededError({ error })) {
 				toast.error("Not enough browser storage", {

@@ -130,7 +130,15 @@ export class AivpEditorController {
 
 	// ---- lifecycle -------------------------------------------------------------------------------
 
-	async start(): Promise<void> {
+	/** Runs the open flow once per window (repeat calls share it). */
+	start(): Promise<void> {
+		this.startPromise ??= this.run();
+		return this.startPromise;
+	}
+
+	private startPromise: Promise<void> | null = null;
+
+	private async run(): Promise<void> {
 		const store = useAivpStore.getState();
 		store.set({ phase: "booting", failure: null });
 		const booted = await this.bridge.bootstrap();
@@ -278,6 +286,26 @@ export class AivpEditorController {
 		if (server.revisionNumber === this.record.baseRevision) {
 			this.setServer({ phase: "pending", revision: server.revisionNumber });
 			this.scheduleUpload(500);
+			return;
+		}
+		// The server already holds exactly this content (e.g. the local record write was lost after an upload).
+		let serverHash: string | null = null;
+		try {
+			serverHash = await projectHash(
+				parseSnapshot({ content: server.content, workspaceId }).project,
+			);
+		} catch {
+			serverHash = null;
+		}
+		if (serverHash === localHash) {
+			this.record = {
+				...this.record,
+				baseRevision: server.revisionNumber,
+				syncedProjectHash: localHash,
+				lastSyncedAt: Date.now(),
+			};
+			await writeSyncRecord(this.record);
+			this.setServer({ phase: "synced", revision: server.revisionNumber });
 			return;
 		}
 		// Unsynced local work AND a newer server version: never pick one silently.

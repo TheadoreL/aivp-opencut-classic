@@ -59,7 +59,8 @@ const nextConfig: NextConfig = {
  * needs a Node/Bun server at runtime.
  */
 const aivpEditorConfig: NextConfig = {
-	reactStrictMode: true,
+	// The embedded editor holds one stateful host session per window; no double effects.
+	reactStrictMode: false,
 	productionBrowserSourceMaps: false,
 	output: "export",
 	distDir: ".next-aivp",

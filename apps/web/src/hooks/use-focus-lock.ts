@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
+import { hasTouchInput } from "@/aivp/platform";
+import { IS_AIVP_EDITOR } from "@/aivp/runtime";
 
 type FocusLockCursor = "text" | "default" | "pointer" | "crosshair";
 
@@ -47,9 +49,13 @@ export function useFocusLock<T extends HTMLElement = HTMLElement>({
 
 		container.setAttribute(DATA_ATTR, "");
 
+		// AIVP touch (iPad WebKit): a document-wide `pointer-events: none` leaves a finger nothing to hit, so
+		// the outside tap that should dismiss the lock never arrives and the whole editor stops responding.
+		// On touch the field just keeps focus until it blurs (keyboard dismissal, Enter, or an outside tap).
+		const lockPointer = !(IS_AIVP_EDITOR && hasTouchInput());
 		const focusLockStyle = document.createElement("style");
 		focusLockStyle.textContent = buildFocusLockCSS({ cursor, allowSelector });
-		document.head.appendChild(focusLockStyle);
+		if (lockPointer) document.head.appendChild(focusLockStyle);
 
 		const handleOutsidePointerDown = (event: PointerEvent) => {
 			if (event.button !== 0) return;

@@ -13,11 +13,13 @@ import { toast } from "sonner";
 
 export function PreviewContextMenu({
 	onToggleFullscreen,
+	isFullscreen,
 	container,
 	overlayControls,
 	onOverlayVisibilityChange,
 }: {
 	onToggleFullscreen: () => void;
+	isFullscreen: boolean;
 	container: HTMLElement | null;
 	overlayControls: PreviewOverlayControl[];
 	onOverlayVisibilityChange: (params: {
@@ -57,7 +59,7 @@ export function PreviewContextMenu({
 			</ContextMenuItem>
 			<ContextMenuSeparator />
 			<ContextMenuItem onClick={onToggleFullscreen} inset>
-				Full screen
+				{isFullscreen ? "退出全屏" : "全屏播放"}
 			</ContextMenuItem>
 			<ContextMenuItem onClick={handleSaveSnapshot} inset>
 				Save snapshot

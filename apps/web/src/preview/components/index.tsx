@@ -6,6 +6,8 @@ import { useEditor } from "@/editor/use-editor";
 import { useRafLoop } from "@/hooks/use-raf-loop";
 import { useContainerSize } from "@/hooks/use-container-size";
 import { useFullscreen } from "@/hooks/use-fullscreen";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { TICKS_PER_SECOND } from "@/wasm";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
@@ -69,7 +71,8 @@ export function PreviewPanel({
 }) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [container, setContainer] = useState<HTMLDivElement | null>(null);
-	const { toggleFullscreen } = useFullscreen({ containerRef });
+	const { toggleFullscreen, exitFullscreen, isFullscreen, fullscreenMode } =
+		useFullscreen({ containerRef });
 	const handleContainerRef = useCallback((node: HTMLDivElement | null) => {
 		containerRef.current = node;
 		setContainer(node);
@@ -78,10 +81,29 @@ export function PreviewPanel({
 	return (
 		<div
 			ref={handleContainerRef}
-			className="panel bg-background relative flex size-full min-h-0 min-w-0 flex-col rounded-sm border"
+			className={
+				fullscreenMode === "viewport"
+					? "panel bg-background fixed inset-0 z-[1000] flex min-h-0 min-w-0 flex-col"
+					: "panel bg-background relative flex size-full min-h-0 min-w-0 flex-col rounded-sm border"
+			}
+			data-aivp-fullscreen={fullscreenMode}
 		>
+			{/* Viewport fallback (no Fullscreen API / denied): the editor surface, with a visible exit. */}
+			{fullscreenMode === "viewport" ? (
+				<button
+					type="button"
+					className="bg-background/80 text-foreground absolute right-3 top-3 z-10 flex items-center gap-1 rounded-sm border px-3 py-1.5 text-xs"
+					style={{ touchAction: "manipulation" }}
+					aria-label="退出全屏（Esc）"
+					onClick={exitFullscreen}
+				>
+					<HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+					退出全屏
+				</button>
+			) : null}
 			<PreviewCanvas
 				container={container}
+				isFullscreen={isFullscreen}
 				onToggleFullscreen={toggleFullscreen}
 				overlayControls={overlayControls}
 				overlayInstances={overlayInstances}
@@ -123,12 +145,14 @@ function RenderTreeController() {
 
 function PreviewCanvas({
 	container,
+	isFullscreen,
 	onToggleFullscreen,
 	overlayControls,
 	overlayInstances,
 	onOverlayVisibilityChange,
 }: {
 	container: HTMLElement | null;
+	isFullscreen: boolean;
 	onToggleFullscreen: () => void;
 	overlayControls: PreviewOverlayControl[];
 	overlayInstances: PreviewOverlayInstance[];
@@ -335,13 +359,17 @@ function PreviewCanvas({
 						</ContextMenuTrigger>
 						<PreviewContextMenu
 							onToggleFullscreen={onToggleFullscreen}
+							isFullscreen={isFullscreen}
 							container={container}
 							overlayControls={overlayControls}
 							onOverlayVisibilityChange={onOverlayVisibilityChange}
 						/>
 					</ContextMenu>
 				</div>
-				<PreviewToolbar onToggleFullscreen={onToggleFullscreen} />
+				<PreviewToolbar
+					isFullscreen={isFullscreen}
+					onToggleFullscreen={onToggleFullscreen}
+				/>
 			</div>
 		</PreviewViewportProvider>
 	);

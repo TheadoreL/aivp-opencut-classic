@@ -7,6 +7,7 @@ import { invokeAction } from "@/actions";
 import { EditableTimecode } from "@/components/editable-timecode";
 import { Button } from "@/components/ui/button";
 import {
+	Cancel01Icon,
 	FullScreenIcon,
 	PauseIcon,
 	PlayIcon,
@@ -27,8 +28,10 @@ import { usePreviewStore } from "@/preview/preview-store";
 import type { MediaTime } from "@/wasm";
 
 export function PreviewToolbar({
+	isFullscreen,
 	onToggleFullscreen,
 }: {
+	isFullscreen: boolean;
 	onToggleFullscreen: () => void;
 }) {
 	return (
@@ -51,8 +54,16 @@ export function PreviewToolbar({
 						)}
 					</Button>
 				</GridPopover> */}
-				<Button variant="text" aria-label="Fullscreen" onClick={onToggleFullscreen}>
-					<HugeiconsIcon icon={FullScreenIcon} />
+				<Button
+					variant="text"
+					aria-label={isFullscreen ? "退出全屏" : "全屏播放"}
+					aria-pressed={isFullscreen}
+					title={isFullscreen ? "退出全屏（Esc）" : "全屏播放"}
+					style={{ touchAction: "manipulation" }}
+					onClick={onToggleFullscreen}
+				>
+					<HugeiconsIcon icon={isFullscreen ? Cancel01Icon : FullScreenIcon} />
+					<span className="text-xs">{isFullscreen ? "退出全屏" : "全屏播放"}</span>
 				</Button>
 			</div>
 		</div>

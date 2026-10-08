@@ -14,13 +14,16 @@ import { mediaTimeFromSeconds } from "@/wasm";
 import {
 	aivpBridge,
 	errorText,
+	LEGACY_HOST,
 	type AivpAccessState,
 	type AivpBridgeError,
 	type AivpEditorBridge,
 	type AivpHostEvent,
+	type AivpHostInfo,
 	type AivpManifestEntry,
 	type AivpSnapshot,
 } from "./bridge";
+import { missingPlatformFeatures } from "./platform";
 import {
 	emptyRecord,
 	readSyncRecord,
@@ -160,6 +163,10 @@ export class AivpEditorController {
 		return this.bridge;
 	}
 
+	getHost(): AivpHostInfo {
+		return aivpState().host;
+	}
+
 	private get editor(): EditorCore {
 		return EditorCore.getInstance();
 	}
@@ -183,6 +190,15 @@ export class AivpEditorController {
 	private async run(): Promise<void> {
 		const store = useAivpStore.getState();
 		store.set({ phase: "booting", failure: null });
+		// Checked on the engine itself (WebKit is not Chromium): nothing is opened without local storage/crypto.
+		const missing = missingPlatformFeatures();
+		if (missing.length > 0) {
+			store.set({
+				phase: "failed",
+				failure: `当前设备的渲染引擎缺少剪辑所需的能力（${missing.join("、")}），无法打开剪辑。服务器上的剪辑版本不受影响。`,
+			});
+			return;
+		}
 		const booted = await this.bridge.bootstrap();
 		if (!booted.ok) {
 			store.set({ phase: "failed", failure: errorText(booted.error) });
@@ -191,6 +207,7 @@ export class AivpEditorController {
 		this.token = booted.data.session.token;
 		store.set({
 			workspace: booted.data.workspace,
+			host: booted.data.host ?? LEGACY_HOST,
 			access: booted.data.session.access,
 			phase: "opening",
 		});
@@ -1035,7 +1052,7 @@ export class AivpEditorController {
 				this.setAccess(event.access, event.message);
 				break;
 			case "close-requested":
-				void this.handleCloseRequest();
+				void this.handleCloseRequest(event.reason);
 				break;
 			case "media-progress":
 				aivpState().setMediaState(event.entryId, {
@@ -1061,9 +1078,13 @@ export class AivpEditorController {
 
 	/**
 	 * Host asked to close: persist locally, try to sync within a bounded
-	 * time, then let the host close. A failed local save asks first.
+	 * time, then let the host close. A failed local save asks first when
+	 * someone can answer (window/app close); when the studio page left or
+	 * the account changed (the editor is hidden), it never closes unsaved:
+	 * it stays open so the host retains it and shows it again, unchanged,
+	 * when this episode is opened again.
 	 */
-	async handleCloseRequest(): Promise<void> {
+	async handleCloseRequest(reason?: "detach" | "quit" | "account"): Promise<void> {
 		if (this.closing) return;
 		this.closing = true;
 		// Freeze editing while closing: the overlay blocks input and keyboard shortcuts.
@@ -1078,6 +1099,13 @@ export class AivpEditorController {
 				}
 				// Saved means the save manager is clean NOW, not merely that one flush resolved.
 				localSaved = !this.editor.save.getIsDirty();
+			}
+			if (!localSaved && (reason === "detach" || reason === "account")) {
+				useAivpStore.getState().set({
+					closing: false,
+					notice: "本机保存未能确认，剪辑器保持打开以免丢失修改；重新进入本集剪辑即可继续。",
+				});
+				return;
 			}
 			if (
 				!localSaved &&

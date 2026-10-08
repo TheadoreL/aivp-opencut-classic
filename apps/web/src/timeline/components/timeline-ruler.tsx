@@ -107,6 +107,8 @@ export function TimelineRuler({
 			aria-valuenow={0}
 			className="relative flex-1 overflow-x-visible"
 			style={{ height: TIMELINE_RULER_HEIGHT_PX }}
+			// AIVP touch bridge: a finger on the ruler scrubs like the mouse.
+			data-aivp-touch-drag=""
 			onWheel={handleWheel}
 			onClick={(event) => {
 				// Ruler seek already happens on mousedown via playhead scrubbing.

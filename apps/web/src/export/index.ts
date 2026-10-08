@@ -18,6 +18,13 @@ export interface ExportOptions {
 	quality: ExportQuality;
 	fps?: FrameRate;
 	includeAudio?: boolean;
+	/** Audio codec chosen by the caller after probing (default: AAC for MP4 with an Opus fallback, Opus for WebM). */
+	audioCodec?: "aac" | "opus";
+	/**
+	 * Encode video only and hand the rendered timeline mix back in
+	 * `ExportResult.externalAudio` (a host muxes it; engines without an audio encoder).
+	 */
+	externalAudio?: boolean;
 }
 
 export interface ExportResult {
@@ -27,6 +34,8 @@ export interface ExportResult {
 	streamed?: boolean;
 	/** What was actually encoded (codecs, size, frame rate, duration). */
 	details?: ExportDetails;
+	/** The rendered timeline mix of an `externalAudio` export (null: the timeline is silent). */
+	externalAudio?: AudioBuffer | null;
 	error?: string;
 	cancelled?: boolean;
 }

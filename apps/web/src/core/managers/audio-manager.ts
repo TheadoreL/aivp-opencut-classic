@@ -460,6 +460,8 @@ export class AudioManager {
 		clip: AudioClipSource;
 	}): boolean {
 		return (
+			// Streaming sinks need WebCodecs audio; without it (older WebKit) clips are decoded whole by the platform.
+			typeof AudioDecoder === "undefined" ||
 			this.hasCurveRetime({ clip }) ||
 			hasAnimatedVolume({ element: clip.timelineElement }) ||
 			shouldMaintainPitch({
@@ -594,6 +596,16 @@ export class AudioManager {
 			return null;
 		}
 
+		const decodeNatively = async (): Promise<AudioBuffer | null> => {
+			try {
+				const arrayBuffer = await clip.file.arrayBuffer();
+				return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+			} catch {
+				return null;
+			}
+		};
+		if (typeof AudioDecoder === "undefined") return decodeNatively();
+
 		const input = new Input({
 			source: new BlobSource(clip.file),
 			formats: ALL_FORMATS,
@@ -663,7 +675,7 @@ export class AudioManager {
 			return await offlineContext.startRendering();
 		} catch (error) {
 			console.warn("Failed to decode clip audio:", error);
-			return null;
+			return decodeNatively();
 		} finally {
 			input.dispose();
 		}

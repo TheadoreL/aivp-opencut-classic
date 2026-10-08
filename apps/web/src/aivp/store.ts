@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import type {
 	AivpAccessState,
+	AivpHostInfo,
 	AivpManifest,
 	AivpSnapshotMeta,
 	AivpWorkspaceInfo,
 } from "./bridge";
+import { LEGACY_HOST } from "./bridge";
 
 export type ServerSyncPhase =
 	| "starting"
@@ -43,6 +45,8 @@ export interface AivpEditorState {
 	phase: "booting" | "opening" | "ready" | "failed";
 	failure: string | null;
 	workspace: AivpWorkspaceInfo | null;
+	/** The shell hosting this editor (embedded desktop view, iPad view, or the legacy window). */
+	host: AivpHostInfo;
 	access: AivpAccessState;
 	accessMessage: string | null;
 	localSave: { phase: LocalSavePhase; error: string | null; lastSavedAt: number | null };
@@ -71,6 +75,7 @@ export const useAivpStore = create<AivpEditorState>((set) => ({
 	phase: "booting",
 	failure: null,
 	workspace: null,
+	host: LEGACY_HOST,
 	access: "active",
 	accessMessage: null,
 	localSave: { phase: "idle", error: null, lastSavedAt: null },

@@ -3,6 +3,7 @@
 import { Plus } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { IS_AIVP_EDITOR } from "@/aivp/runtime";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Button } from "@/components/ui/button";
 import {
@@ -162,6 +163,22 @@ export function DraggableItem({
 							{name}
 						</span>
 					</button>
+					{/* AIVP touch: rows have no hover affordance, so the add action is a visible button. */}
+					{IS_AIVP_EDITOR && onAddToTimeline && (
+						<Button
+							size="icon"
+							variant="ghost"
+							className="aivp-touch-only absolute top-1/2 right-1 size-7 -translate-y-1/2"
+							aria-label="添加到时间线"
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								handleAddToTimeline();
+							}}
+						>
+							<Plus />
+						</Button>
+					)}
 				</div>
 			)}
 

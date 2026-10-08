@@ -30,6 +30,8 @@ type ExportParams = {
 	quality: ExportQuality;
 	shouldIncludeAudio?: boolean;
 	audioBuffer?: AudioBuffer;
+	/** Explicit audio codec (probed by the caller); otherwise the format default with an AAC → Opus fallback. */
+	audioCodec?: "aac" | "opus";
 };
 
 const qualityMap = {
@@ -52,6 +54,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private quality: ExportQuality;
 	private shouldIncludeAudio: boolean;
 	private audioBuffer?: AudioBuffer;
+	private requestedAudioCodec?: "aac" | "opus";
 
 	private isCancelled = false;
 
@@ -63,6 +66,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		quality,
 		shouldIncludeAudio,
 		audioBuffer,
+		audioCodec,
 	}: ExportParams) {
 		super();
 		this.renderer = new CanvasRenderer({
@@ -75,6 +79,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.quality = quality;
 		this.shouldIncludeAudio = shouldIncludeAudio ?? false;
 		this.audioBuffer = audioBuffer;
+		this.requestedAudioCodec = audioCodec;
 	}
 
 	cancel(): void {
@@ -161,9 +166,14 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 		let audioSource: AudioBufferSource | null = null;
 		if (this.shouldIncludeAudio && this.audioBuffer) {
-			let audioCodec: "aac" | "opus" = this.format === "webm" ? "opus" : "aac";
+			let audioCodec: "aac" | "opus" =
+				this.requestedAudioCodec ?? (this.format === "webm" ? "opus" : "aac");
 
-			if (audioCodec === "aac" && typeof AudioEncoder !== "undefined") {
+			if (
+				this.requestedAudioCodec === undefined &&
+				audioCodec === "aac" &&
+				typeof AudioEncoder !== "undefined"
+			) {
 				const { supported } = await AudioEncoder.isConfigSupported({
 					codec: "mp4a.40.2",
 					sampleRate: this.audioBuffer.sampleRate,

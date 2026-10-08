@@ -155,7 +155,7 @@ export class RendererManager {
 		/** When given, container bytes are streamed here instead of returned as a buffer. */
 		writable?: WritableStream<ExportStreamChunk>;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio } = options;
+		const { format, quality, fps, includeAudio, audioCodec, externalAudio } = options;
 
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
@@ -198,8 +198,10 @@ export class RendererManager {
 				fps: exportFps,
 				format,
 				quality,
-				shouldIncludeAudio: !!includeAudio,
+				// An external mix is muxed by the host: the container gets video only.
+				shouldIncludeAudio: !!includeAudio && !externalAudio,
 				audioBuffer: audioBuffer || undefined,
+				audioCodec,
 			});
 
 			exporter.on("progress", (progress) => {
@@ -234,7 +236,12 @@ export class RendererManager {
 					if (cancelled || !completed) {
 						return { success: false, cancelled: true };
 					}
-					return { success: true, streamed: true, details: detailsOf() };
+					return {
+						success: true,
+						streamed: true,
+						details: detailsOf(),
+						...(externalAudio ? { externalAudio: includeAudio ? audioBuffer : null } : {}),
+					};
 				}
 
 				const buffer = await exporter.export({ rootNode: scene });

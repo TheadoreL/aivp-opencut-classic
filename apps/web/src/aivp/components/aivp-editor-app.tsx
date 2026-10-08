@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { EditorLayout } from "@/components/editor/editor-layout";
+import { EditorLayout, type EditorLayoutVariant } from "@/components/editor/editor-layout";
 import { EditorRuntimeBindings } from "@/components/providers/editor-provider";
 import { MigrationDialog } from "@/project/components/migration-dialog";
+import { invokeAction } from "@/actions";
 import { useKeybindingsStore } from "@/actions/keybindings-store";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,18 +15,41 @@ import {
 } from "@/components/ui/popover";
 import { useEditor } from "@/editor/use-editor";
 import { AivpEditorController } from "../controller";
+import { hasTouchInput } from "../platform";
 import { useAivpStore, type AivpEditorState } from "../store";
+import { installTouchMouseBridge } from "../touch";
 import { AivpConflictDialog } from "./aivp-conflict-dialog";
 import { AivpExportDialog } from "./aivp-export-dialog";
 import { AivpHistoryDialog } from "./aivp-history-dialog";
 import { AivpTitleCardDialog } from "./aivp-title-card-dialog";
 
+/** Layout for the editor's own viewport (the area the studio reserved, or the whole window). */
+function layoutFor(width: number): EditorLayoutVariant {
+	if (width >= 1100) return "full";
+	if (width >= 700) return "split";
+	return "stack";
+}
+
+function useLayoutVariant(): EditorLayoutVariant {
+	const [variant, setVariant] = useState<EditorLayoutVariant>(() =>
+		typeof window === "undefined" ? "full" : layoutFor(window.innerWidth),
+	);
+	useEffect(() => {
+		const update = () => setVariant(layoutFor(window.innerWidth));
+		update();
+		window.addEventListener("resize", update);
+		return () => window.removeEventListener("resize", update);
+	}, []);
+	return variant;
+}
+
 /**
- * AIVP embedded OpenCut Classic editor: the upstream four-panel editor
- * (media bin, preview, properties, real timeline) under an AIVP header with
+ * AIVP embedded OpenCut Classic editor: the upstream editor panels (media
+ * bin, preview, properties, real timeline) under an AIVP header with
  * breadcrumb, truthful local/server save state, episode media sync,
  * conflict handling and the export/final-cut flow. All host operations go
- * through the scoped editor bridge.
+ * through the scoped editor bridge. The same build runs embedded in the
+ * desktop studio window and in the iPad studio (touch, compact layouts).
  */
 export function AivpEditorApp() {
 	const [controller] = useState(() => AivpEditorController.create());
@@ -41,6 +65,17 @@ export function AivpEditorApp() {
 		return () => controller.dispose();
 	}, [controller]);
 
+	// Touch input: timeline gestures become the mouse sequences the Classic controllers expect.
+	useEffect(() => {
+		if (!hasTouchInput()) return;
+		document.documentElement.classList.add("aivp-touch");
+		const remove = installTouchMouseBridge();
+		return () => {
+			remove();
+			document.documentElement.classList.remove("aivp-touch");
+		};
+	}, []);
+
 	// Shortcuts stay off until ready, while closing (final save) and while the project is replaced.
 	useEffect(() => {
 		setLoadingProject(phase !== "ready" || closing || replacing);
@@ -49,9 +84,9 @@ export function AivpEditorApp() {
 	if (!controller) {
 		return (
 			<Screen>
-				<strong>剪辑器需要在 AIVP 桌面客户端中打开</strong>
+				<strong>剪辑器需要在 AIVP 客户端中打开</strong>
 				<span className="text-muted-foreground">
-					请返回 AIVP 创作台，从“剪辑”中选择一集打开。
+					请在 AIVP 桌面或 iPad 客户端的创作台中，从“分集剪辑”选择一集打开。
 				</span>
 			</Screen>
 		);
@@ -98,6 +133,7 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 	// While the open project is replaced the panels (whose selectors need an active scene),
 	// keybindings and export dialog are unmounted; they mount again on the loaded project.
 	const replacing = useAivpStore((state) => state.replacing);
+	const layoutVariant = useLayoutVariant();
 
 	useEffect(() => {
 		if (conflict) setConflictOpen(true);
@@ -123,7 +159,7 @@ function AivpEditorShell({ controller }: { controller: AivpEditorController }) {
 							</div>
 						</div>
 					) : (
-						<EditorLayout />
+						<EditorLayout variant={layoutVariant} />
 					)}
 				</div>
 				<MigrationDialog />
@@ -211,6 +247,7 @@ function AivpHeader({
 	onTitleCard: (() => void) | null;
 }) {
 	const workspace = useAivpStore((state) => state.workspace);
+	const host = useAivpStore((state) => state.host);
 	const localSave = useAivpStore((state) => state.localSave);
 	const server = useAivpStore((state) => state.server);
 	const access = useAivpStore((state) => state.access);
@@ -221,21 +258,25 @@ function AivpHeader({
 	const episodeLabel = workspace
 		? `第 ${workspace.episodeNumber ?? workspace.episodeOrdinal} 集${workspace.episodeTitle ? ` · ${workspace.episodeTitle}` : ""}`
 		: "";
+	// Embedded: the studio returns to the episode list (and this editor saves and closes); legacy window: focus the studio.
 	const backToStudio = () => {
 		void controller.getBridge().focusStudio(controller.getToken());
 	};
+	const backLabel = host.embedded ? "返回分集剪辑" : "返回创作台";
 
 	return (
-		<header className="aivp-header">
-			<span className="aivp-brand">
-				中诚建川<small>AIVP</small>
-			</span>
+		<header className={host.embedded ? "aivp-header aivp-header--embedded" : "aivp-header"}>
+			{!host.embedded && (
+				<span className="aivp-brand">
+					中诚建川<small>AIVP</small>
+				</span>
+			)}
 			<nav className="aivp-crumbs" aria-label="位置">
-				<button type="button" onClick={backToStudio} title="返回创作台">
+				<button type="button" onClick={backToStudio} title={backLabel}>
 					{workspace?.projectName ?? "项目"}
 				</button>
 				<span aria-hidden="true">/</span>
-				<button type="button" onClick={backToStudio}>
+				<button type="button" onClick={backToStudio} title={backLabel}>
 					分集剪辑
 				</button>
 				<span aria-hidden="true">/</span>
@@ -248,6 +289,13 @@ function AivpHeader({
 				{remote.text}
 			</span>
 			<div className="ml-auto flex flex-wrap items-center gap-2">
+				{/* Visible undo/redo: iPad without a keyboard has no shortcut for them. */}
+				<Button variant="outline" size="sm" disabled={onTitleCard === null} onClick={() => invokeAction("undo")}>
+					撤销
+				</Button>
+				<Button variant="outline" size="sm" disabled={onTitleCard === null} onClick={() => invokeAction("redo")}>
+					重做
+				</Button>
 				<MediaPopover controller={controller} />
 				<Button
 					variant="outline"
@@ -282,7 +330,7 @@ function AivpHeader({
 					导出成片
 				</Button>
 				<Button variant="ghost" size="sm" onClick={backToStudio}>
-					返回创作台
+					{backLabel}
 				</Button>
 			</div>
 		</header>
@@ -312,7 +360,7 @@ function MediaPopover({ controller }: { controller: AivpEditorController }) {
 					{failed.length > 0 ? ` · ${failed.length} 失败` : ""}
 				</Button>
 			</PopoverTrigger>
-			<PopoverContent className="w-[420px]" align="end">
+			<PopoverContent className="w-[420px] max-w-[calc(100vw-24px)]" align="end">
 				<div className="mb-2 flex items-center justify-between text-sm">
 					<strong>本集素材清单</strong>
 					{failed.length > 0 && (

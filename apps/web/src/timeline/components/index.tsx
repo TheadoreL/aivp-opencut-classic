@@ -454,6 +454,8 @@ export function Timeline() {
 				<div
 					className="relative isolate flex flex-1 flex-col overflow-hidden"
 					ref={tracksContainerRef}
+					// AIVP touch bridge: one-finger gestures on clips, handles, playhead and ruler drive the mouse controllers.
+					data-aivp-touch-surface="timeline"
 				>
 					<SelectionBox
 						bounds={selectionBox?.bounds ?? null}

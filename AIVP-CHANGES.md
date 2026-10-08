@@ -68,6 +68,35 @@ transcription model downloads, Google font CSS.
   inserted at a main-track boundary as one `TracksSnapshotCommand`; every
   element at/after the boundary on all tracks moves by the same interval,
   and an element crossing the boundary refuses the insertion.
+- C21 embedded editing (desktop and iPad): the host reports itself in
+  `bootstrap` (`host`: shell, embedded, capabilities); embedded hosts show
+  no brand (the studio header has it) and 返回 goes back to the episode
+  list. A close requested because the studio page left or the account
+  changed never closes with an unconfirmed local save (the host retains the
+  editor and shows it again). Missing engine facilities (secure context,
+  IndexedDB, Web Crypto, OffscreenCanvas, WebCodecs video decoding, Web
+  Audio) fail with an explicit message (`src/aivp/platform.ts`).
+- Touch (`src/aivp/touch.ts`, `html.aivp-touch`): one-finger gestures on
+  timeline clips, trim handles, keyframes, playhead and ruler
+  (`data-aivp-touch-surface` / `data-aivp-touch-drag`) become the mouse
+  sequences the Classic controllers expect; a held press opens the element
+  context menu; empty lanes scroll natively; hover-only add buttons are
+  shown and small handles get finger-sized hit areas. Visible 撤销/重做.
+- `EditorLayout({ variant })`: `split` (side pane switching assets /
+  properties beside the preview) and `stack` (one pane switching preview /
+  assets / properties) above the real timeline for narrow viewports (iPad
+  portrait, Split View); the site route keeps `full`.
+- WebKit without WebCodecs audio: asset and preview audio decode through
+  `decodeAudioData`; media bytes go to an IndexedDB blob store where OPFS
+  files cannot be written from the page (`MediaFileStore`; reads consult
+  both).
+- Export: video/audio encoders are probed at runtime (mediabunny
+  `canEncodeVideo`/`canEncodeAudio`); unsupported formats are disabled with
+  an explicit reason. `ExportOptions.audioCodec` selects the probed codec;
+  `externalAudio` encodes video only and returns the rendered mix, which
+  `src/aivp/export.ts` streams as a PCM WAV sidecar (`exports.writeAudio`)
+  to hosts whose platform media framework encodes it to AAC and muxes it
+  (iPad WebKit without an AAC encoder). Hosts may offer `exports.share`.
 - Accessibility: icon-only timeline toolbar buttons, timeline zoom
   buttons/slider (`Slider.thumbLabel`), the scenes button and the preview
   play/fullscreen/zoom controls have accessible names (toggles expose

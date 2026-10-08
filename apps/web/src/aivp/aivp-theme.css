@@ -279,6 +279,81 @@ html.aivp-editor :focus-visible {
 	color: #91a6bc;
 }
 
+/*
+ * Touch (iPad, touch screens; `html.aivp-touch`, set by the AIVP app when touch input exists).
+ * Controls mouse users find on hover are always shown; small timeline handles get finger-sized hit
+ * areas (the pseudo element belongs to its button, so the touch bridge and the controllers see the
+ * button); the timeline surface never selects text or shows the system callout on a long press.
+ */
+html.aivp-touch .group .opacity-0.group-hover\:opacity-100 {
+	opacity: 1;
+}
+
+html.aivp-touch [data-aivp-touch-surface] {
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+}
+
+html.aivp-touch [data-aivp-touch-surface] button[aria-label="Drag playhead"]::before,
+html.aivp-touch [data-aivp-touch-surface] button[aria-label$="resize handle"]::before,
+html.aivp-touch [data-aivp-touch-surface] button[aria-label="Select keyframe"]::before {
+	content: "";
+	position: absolute;
+	inset: -12px -10px;
+}
+
+html.aivp-touch .aivp-header button,
+html.aivp-touch .aivp-banner button {
+	min-height: 36px;
+}
+
+.aivp-touch-only {
+	display: none;
+}
+
+html.aivp-touch .aivp-touch-only {
+	display: inline-flex;
+}
+
+/* Embedded in the studio workspace: the studio header carries brand, 返回 and navigation. */
+.aivp-header--embedded {
+	min-height: 48px;
+	padding: 6px 12px;
+	gap: 10px;
+}
+
+/* Compact layout tabs (narrow windows, iPad portrait, Split View). */
+.aivp-pane-tabs {
+	display: flex;
+	gap: 4px;
+	padding: 4px;
+	border-bottom: 1px solid #25374b;
+	background: #0c1422;
+}
+
+.aivp-pane-tabs button {
+	flex: 1;
+	min-height: 32px;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: none;
+	color: #a5b9cf;
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.aivp-pane-tabs button[aria-selected="true"] {
+	border-color: #2b5566;
+	background: #193b4b;
+	color: #e9f1f8;
+}
+
+html.aivp-touch .aivp-pane-tabs button {
+	min-height: 40px;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	html.aivp-editor * {
 		animation-duration: 0.01ms !important;

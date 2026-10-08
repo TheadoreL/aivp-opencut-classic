@@ -2,6 +2,7 @@ import type { TProject, TProjectMetadata } from "@/project/types";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
+import { MediaFileStore } from "./media-file-store";
 import { OPFSAdapter } from "./opfs-adapter";
 import {
 	type StorageCapacityCheckResult,
@@ -97,7 +98,8 @@ class StorageService {
 			version: this.config.version,
 		});
 
-		const mediaAssetsAdapter = new OPFSAdapter(`media-files-${projectId}`);
+		// OPFS where the page can write files, else an IndexedDB blob store (older WebKit).
+		const mediaAssetsAdapter = new MediaFileStore({ projectId });
 
 		return { mediaMetadataAdapter, mediaAssetsAdapter };
 	}

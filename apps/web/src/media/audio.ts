@@ -252,7 +252,8 @@ async function resolveAudioBufferForAsset({
 	asset: MediaAsset;
 	audioContext: AudioContext;
 }): Promise<AudioBuffer | null> {
-	if (asset.type === "audio") {
+	// Engines without WebCodecs audio (older WebKit) decode containers natively, a video's audio track included.
+	if (asset.type === "audio" || typeof AudioDecoder === "undefined") {
 		try {
 			const arrayBuffer = await asset.file.arrayBuffer();
 			return await audioContext.decodeAudioData(arrayBuffer.slice(0));
@@ -332,7 +333,13 @@ async function resolveAudioBufferForAsset({
 		return await offlineContext.startRendering();
 	} catch (error) {
 		console.warn("Failed to decode asset audio:", error);
-		return null;
+		// A track WebCodecs cannot decode here may still be decodable by the platform decoder.
+		try {
+			const arrayBuffer = await asset.file.arrayBuffer();
+			return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+		} catch {
+			return null;
+		}
 	} finally {
 		input.dispose();
 	}

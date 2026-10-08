@@ -1,10 +1,13 @@
 /**
- * Typed view of the AIVP desktop editor bridge (`window.aivpEditor`), exposed
- * by the host's editor preload to this origin only. Every call carries the
- * short-lived editing-session token the host issued for THIS window and
- * episode; the host re-checks sender window/frame/origin, token, account,
- * license and project access on every call. There is no generic file, HTTP
- * or process API: only these typed episode operations.
+ * Typed view of the AIVP editor bridge (`window.aivpEditor`), exposed by the
+ * host shell to this origin only: the desktop editor preload (Electron) or
+ * the iPad shell's injected adapter (WKWebView, native message handler).
+ * Every call carries the short-lived editing-session token the host issued
+ * for THIS editor view and episode; the host re-checks sender view/frame/
+ * origin, token, account, license and project access on every call. There is
+ * no generic file, HTTP or process API: only these typed episode operations.
+ * The editing business logic (reconcile, sync, conflicts, export) is this
+ * shared editor code; the shells only implement the host side.
  */
 
 export type AivpBridgeErrorCode =
@@ -137,7 +140,33 @@ export interface AivpExportFile {
 	fileName: string;
 	byteLength: number;
 	sha256: string;
+	/** What the finished file contains (after a host-side audio mux, the host's account of it). */
+	details?: AivpExportDetails;
 }
+
+/** The shell the editor runs in and what it offers beyond the common operations. */
+export interface AivpHostInfo {
+	shell: "desktop" | "ipados";
+	/** Shown inside the studio workspace (its header/返回 stay visible above the editor). */
+	embedded: boolean;
+	capabilities: {
+		/**
+		 * The host encodes a PCM (WAV) sidecar to AAC and muxes it with the
+		 * editor's H.264 video (platform media framework), for engines
+		 * without a WebCodecs AAC/Opus encoder.
+		 */
+		nativeAudioMux: boolean;
+		/** `exports.share` presents the system share sheet for a finished export. */
+		share: boolean;
+	};
+}
+
+/** Older hosts (separate desktop editor window) did not report themselves. */
+export const LEGACY_HOST: AivpHostInfo = {
+	shell: "desktop",
+	embedded: false,
+	capabilities: { nativeAudioMux: false, share: false },
+};
 
 export interface AivpExportDetails {
 	format: "mp4" | "webm";
@@ -159,7 +188,11 @@ export interface AivpFinalCutUpload {
 
 export type AivpHostEvent =
 	| { type: "access"; access: AivpAccessState; message: string | null }
-	| { type: "close-requested" }
+	/**
+	 * `detach`: the studio page left (the editor is already hidden, nobody can answer a prompt);
+	 * `account`: the studio signed out or switched account; `quit`: the window/app closes (absent: legacy window close).
+	 */
+	| { type: "close-requested"; reason?: "detach" | "quit" | "account" }
 	| {
 			type: "upload-progress";
 			exportId: string;
@@ -170,7 +203,7 @@ export type AivpHostEvent =
 
 export interface AivpEditorBridge {
 	bootstrap(): Promise<
-		AivpResult<{ session: AivpSession; workspace: AivpWorkspaceInfo }>
+		AivpResult<{ session: AivpSession; workspace: AivpWorkspaceInfo; host?: AivpHostInfo }>
 	>;
 	heartbeat(token: string): Promise<AivpResult<AivpSession>>;
 	snapshots: {
@@ -204,9 +237,17 @@ export interface AivpEditorBridge {
 	exports: {
 		begin(
 			token: string,
-			input: { format: "mp4" | "webm" },
+			/** `externalAudio`: video-only container now, PCM WAV sidecar via `writeAudio` (needs `nativeAudioMux`). */
+			input: { format: "mp4" | "webm"; externalAudio?: boolean },
 		): Promise<AivpResult<AivpExportJob>>;
 		write(
+			token: string,
+			jobId: string,
+			position: number,
+			data: Uint8Array,
+		): Promise<AivpResult<{ written: number }>>;
+		/** Positioned bytes of the WAV sidecar of an `externalAudio` job (hosts with `nativeAudioMux`). */
+		writeAudio?(
 			token: string,
 			jobId: string,
 			position: number,
@@ -222,6 +263,11 @@ export interface AivpEditorBridge {
 			token: string,
 			exportId: string,
 		): Promise<AivpResult<{ status: "saved" | "cancelled"; fileName: string | null }>>;
+		/** System share sheet for a finished export (hosts with `share`). */
+		share?(
+			token: string,
+			exportId: string,
+		): Promise<AivpResult<{ status: "shared" | "cancelled" }>>;
 		upload(
 			token: string,
 			exportId: string,
@@ -233,7 +279,10 @@ export interface AivpEditorBridge {
 		token: string,
 		state: { localSaved: boolean; serverSynced: boolean },
 	): Promise<AivpResult<{ closing: true }>>;
-	/** Returns to the AIVP studio window (the editor stays open). */
+	/**
+	 * 返回: embedded hosts take the studio back to the episode list (which then
+	 * closes this editor after saving); the legacy window host focused the studio.
+	 */
 	focusStudio(token: string): Promise<AivpResult<{ focused: true }>>;
 	onEvent(listener: (event: AivpHostEvent) => void): () => void;
 }

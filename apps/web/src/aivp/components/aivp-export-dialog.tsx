@@ -21,12 +21,18 @@ import { frameRateToFloat } from "@/fps/utils";
 import { mediaTimeToSeconds } from "opencut-wasm";
 import { errorText, type AivpExportDetails, type AivpExportFile } from "../bridge";
 import type { AivpEditorController } from "../controller";
-import { AIVP_EXPORT_MAX_SECONDS, exportToHost } from "../export";
+import {
+	AIVP_EXPORT_MAX_SECONDS,
+	exportToHost,
+	probeExportSupport,
+	unsupportedReason,
+	type AivpFormatSupport,
+} from "../export";
 import { useAivpStore } from "../store";
 
-const FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
-	{ value: "mp4", label: "MP4", hint: "H.264 视频 + AAC 音频（不支持 AAC 编码时为 Opus）" },
-	{ value: "webm", label: "WebM", hint: "VP9 视频 + Opus 音频" },
+const FORMATS: { value: ExportFormat; label: string; video: string }[] = [
+	{ value: "mp4", label: "MP4", video: "H.264 视频" },
+	{ value: "webm", label: "WebM", video: "VP9 视频" },
 ];
 const QUALITIES: { value: ExportQuality; label: string }[] = [
 	{ value: "low", label: "低" },
@@ -37,7 +43,7 @@ const QUALITIES: { value: ExportQuality; label: string }[] = [
 
 type Stage =
 	| { kind: "setup"; error: string | null }
-	| { kind: "exporting" }
+	| { kind: "exporting"; step: "encoding" | "audio" | "finishing" }
 	| {
 			kind: "done";
 			file: AivpExportFile;
@@ -58,6 +64,15 @@ function formatDuration(ms: number): string {
 	return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function audioHint(support: AivpFormatSupport | undefined): string {
+	if (!support) return "正在检测本机编码能力…";
+	if (!support.video) return "本机不支持该视频编码";
+	const audio = support.audio;
+	if (audio === null) return "本机无法编码音频（可导出无声版本）";
+	if (audio.mode === "host-mux") return "AAC 音频（由系统媒体框架编码封装）";
+	return audio.codec === "aac" ? "AAC 音频" : "Opus 音频";
+}
+
 export function AivpExportDialog({
 	controller,
 	open,
@@ -73,10 +88,14 @@ export function AivpExportDialog({
 	const durationSeconds = useEditor((e) => mediaTimeToSeconds({ time: e.timeline.getTotalDuration() }));
 	const access = useAivpStore((state) => state.access);
 	const permissions = useAivpStore((state) => state.workspace?.permissions);
+	const host = useAivpStore((state) => state.host);
 	const [format, setFormat] = useState<ExportFormat>("mp4");
 	const [quality, setQuality] = useState<ExportQuality>("high");
 	const [includeAudio, setIncludeAudio] = useState(true);
 	const [stage, setStage] = useState<Stage>({ kind: "setup", error: null });
+	const [support, setSupport] = useState<AivpFormatSupport[] | null>(null);
+	const width = project?.settings.canvasSize.width ?? 0;
+	const height = project?.settings.canvasSize.height ?? 0;
 
 	useEffect(() => {
 		if (!open) return;
@@ -90,11 +109,30 @@ export function AivpExportDialog({
 		});
 	}, [controller, open]);
 
+	// What THIS engine can encode at the project size (probed each time the dialog opens).
+	useEffect(() => {
+		if (!open || width <= 0 || height <= 0) return;
+		let current = true;
+		setSupport(null);
+		void probeExportSupport({ host, bridge: controller.getBridge(), width, height }).then((result) => {
+			if (!current) return;
+			setSupport(result);
+			const preferred = result.find((item) => item.format === "mp4" && item.video) ?? result.find((item) => item.video);
+			if (preferred) setFormat(preferred.format);
+		});
+		return () => {
+			current = false;
+		};
+	}, [controller, host, open, width, height]);
+
 	if (!project) return null;
-	const { width, height } = project.settings.canvasSize;
 	const fps = frameRateToFloat(project.settings.fps);
 	const tooLong = durationSeconds > AIVP_EXPORT_MAX_SECONDS;
 	const empty = durationSeconds <= 0;
+	const selected = support?.find((item) => item.format === format);
+	const blocked = support === null ? null : unsupportedReason({ format, quality, includeAudio }, selected);
+	const saveLabel = host.shell === "ipados" ? "存储到“文件”…" : "保存到本机…";
+	const canShare = host.capabilities.share && typeof controller.getBridge().exports.share === "function";
 
 	const close = (next: boolean) => {
 		if (stage.kind === "exporting") return;
@@ -104,7 +142,8 @@ export function AivpExportDialog({
 	};
 
 	const start = async () => {
-		setStage({ kind: "exporting" });
+		if (blocked !== null || !selected) return;
+		setStage({ kind: "exporting", step: "encoding" });
 		// Bind the export to a server edit revision: persist and sync first.
 		await controller.uploadNow();
 		const server = useAivpStore.getState().server;
@@ -113,6 +152,8 @@ export function AivpExportDialog({
 			bridge: controller.getBridge(),
 			token: controller.getToken(),
 			request: { format, quality, includeAudio, fps: project.settings.fps },
+			audio: includeAudio ? selected.audio : null,
+			onStage: (step) => setStage({ kind: "exporting", step }),
 		});
 		if (outcome.status === "done") {
 			setStage({ kind: "done", file: outcome.file, details: outcome.details, snapshotRevision, savedName: null, upload: { state: "idle" } });
@@ -132,6 +173,13 @@ export function AivpExportDialog({
 		if (result.data.status === "saved") setStage({ ...stage, savedName: result.data.fileName });
 	};
 
+	const share = async () => {
+		const shareExport = controller.getBridge().exports.share;
+		if (stage.kind !== "done" || !shareExport) return;
+		const result = await shareExport(controller.getToken(), stage.file.exportId);
+		if (!result.ok) useAivpStore.getState().set({ notice: `共享失败：${errorText(result.error)}` });
+	};
+
 	const upload = async () => {
 		if (stage.kind !== "done" || stage.snapshotRevision === null) return;
 		setStage({ ...stage, upload: { state: "uploading", sent: 0, total: stage.file.byteLength } });
@@ -149,6 +197,15 @@ export function AivpExportDialog({
 					},
 		);
 	};
+
+	const stepText =
+		stage.kind !== "exporting"
+			? ""
+			: stage.step === "audio"
+				? "正在写入音频…"
+				: stage.step === "finishing"
+					? "正在封装、校验并完成文件…"
+					: `正在渲染与编码… ${Math.floor(exportState.progress * 100)}%`;
 
 	return (
 		<Dialog open={open} onOpenChange={close}>
@@ -171,19 +228,23 @@ export function AivpExportDialog({
 							<div className="space-y-2">
 								<Label>格式</Label>
 								<RadioGroup value={format} onValueChange={(value) => setFormat(value as ExportFormat)}>
-									{FORMATS.map((item) => (
-										<div key={item.value} className="flex items-center gap-2">
-											<RadioGroupItem value={item.value} id={`aivp-format-${item.value}`} />
-											<Label htmlFor={`aivp-format-${item.value}`}>
-												{item.label} <span className="text-muted-foreground">· {item.hint}</span>
-											</Label>
-										</div>
-									))}
+									{FORMATS.map((item) => {
+										const itemSupport = support?.find((entry) => entry.format === item.value);
+										const disabled = support !== null && itemSupport?.video !== true;
+										return (
+											<div key={item.value} className="flex items-center gap-2">
+												<RadioGroupItem value={item.value} id={`aivp-format-${item.value}`} disabled={disabled} />
+												<Label htmlFor={`aivp-format-${item.value}`} className={disabled ? "opacity-60" : undefined}>
+													{item.label} <span className="text-muted-foreground">· {item.video} + {audioHint(itemSupport)}</span>
+												</Label>
+											</div>
+										);
+									})}
 								</RadioGroup>
 							</div>
 							<div className="space-y-2">
 								<Label>质量</Label>
-								<RadioGroup className="flex gap-4" value={quality} onValueChange={(value) => setQuality(value as ExportQuality)}>
+								<RadioGroup className="flex flex-wrap gap-4" value={quality} onValueChange={(value) => setQuality(value as ExportQuality)}>
 									{QUALITIES.map((item) => (
 										<div key={item.value} className="flex items-center gap-2">
 											<RadioGroupItem value={item.value} id={`aivp-quality-${item.value}`} />
@@ -196,6 +257,8 @@ export function AivpExportDialog({
 								<Checkbox id="aivp-include-audio" checked={includeAudio} onCheckedChange={(value) => setIncludeAudio(value === true)} />
 								<Label htmlFor="aivp-include-audio">包含音频</Label>
 							</div>
+							{support === null && <p className="text-muted-foreground" role="status">正在检测本机支持的编码…</p>}
+							{blocked && <p className="text-caution" role="alert">{blocked}</p>}
 							{empty && <p className="text-caution">时间线为空，无法导出。</p>}
 							{tooLong && <p className="text-caution">时长超过当前导出上限，请分段导出。</p>}
 							{stage.error && <p className="text-destructive" role="alert">{stage.error}</p>}
@@ -203,9 +266,9 @@ export function AivpExportDialog({
 					)}
 					{stage.kind === "exporting" && (
 						<div className="space-y-3" role="status">
-							<p>正在渲染与编码… {Math.floor(exportState.progress * 100)}%</p>
-							<Progress value={exportState.progress * 100} />
-							<p className="text-muted-foreground">导出期间请勿关闭剪辑器。取消后不会保留不完整的文件。</p>
+							<p>{stepText}</p>
+							<Progress value={stage.step === "encoding" ? exportState.progress * 100 : 100} />
+							<p className="text-muted-foreground">导出期间请勿关闭剪辑器或离开本页。取消后不会保留不完整的文件。</p>
 						</div>
 					)}
 					{stage.kind === "done" && (
@@ -219,7 +282,7 @@ export function AivpExportDialog({
 								<span>大小：{(stage.file.byteLength / 1048576).toFixed(1)} MB</span>
 								<span title={stage.file.sha256}>SHA-256：{stage.file.sha256.slice(0, 12)}…</span>
 							</div>
-							{stage.savedName && <p>已保存到本机：{stage.savedName}</p>}
+							{stage.savedName && <p>已保存：{stage.savedName}</p>}
 							{stage.snapshotRevision === null ? (
 								<p className="text-caution">
 									导出时剪辑未能同步到服务器，无法登记来源剪辑版本，因此不能上传为成片候选。请恢复同步后重新导出。
@@ -242,18 +305,18 @@ export function AivpExportDialog({
 						</div>
 					)}
 				</DialogBody>
-				<DialogFooter>
+				<DialogFooter className="flex-wrap gap-2">
 					{stage.kind === "setup" && (
 						<>
 							<Button variant="ghost" onClick={() => close(false)}>
 								关闭
 							</Button>
-							<Button disabled={empty || tooLong} onClick={() => void start()}>
+							<Button disabled={empty || tooLong || support === null || blocked !== null} onClick={() => void start()}>
 								开始导出
 							</Button>
 						</>
 					)}
-					{stage.kind === "exporting" && (
+					{stage.kind === "exporting" && stage.step === "encoding" && (
 						<Button variant="outline" onClick={() => editor.project.cancelExport()}>
 							取消导出
 						</Button>
@@ -264,8 +327,13 @@ export function AivpExportDialog({
 								完成
 							</Button>
 							<Button variant="outline" onClick={() => void saveAs()}>
-								保存到本机…
+								{saveLabel}
 							</Button>
+							{canShare && (
+								<Button variant="outline" onClick={() => void share()}>
+									共享…
+								</Button>
+							)}
 							<Button
 								disabled={
 									stage.snapshotRevision === null ||

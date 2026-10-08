@@ -7,29 +7,28 @@ import {
 /**
  * H.264 encoding driven directly through WebCodecs, with the encoded chunks
  * handed to mediabunny's muxer as packets (`EncodedVideoPacketSource`).
+ * Used by the iPad (WebKit) host.
  *
- * Used where the engine's encoder needs explicit handling (WebKit on iPad):
- * - Input frames are CPU-owned I420 buffers copied from the rendered output
- *   (drawn into a private 2D surface, read back, converted with BT.709
- *   coefficients). A `VideoFrame` made from the shared WebGL compositor
- *   canvas is backed by a GPU surface the compositor keeps redrawing; on the
- *   iPad Simulator the platform encoder accepted such frames but never
- *   produced output or completed `flush()`. A plain I420 buffer has no tie
- *   to the canvas, its context or GPU memory, and is the encoder's native
- *   input layout.
- * - `latencyMode: "realtime"` so the platform encoder emits each frame
- *   without reordering/look-ahead (no B-frames: decode order equals
- *   presentation order, which the MP4 muxer requires of packets).
- * - Backpressure on `encodeQueueSize` with polling (never only on a
- *   `dequeue` event), `flush()` when queued frames produce no output, and
- *   every wait bounded and cancellable; failures name their stage.
+ * Observed on the iPadOS Simulator: a configuration `isConfigSupported()`
+ * accepted took input frames (the queue drained for the first frames) but
+ * never emitted an encoded chunk, and `flush()` never settled — with
+ * canvas-backed and with CPU-owned I420 frames alike. The cause is not
+ * established. Configurations are therefore accepted only after a bounded
+ * FUNCTIONAL probe (encode real frames at the export geometry, flush, and
+ * require every chunk plus a decoder configuration), trying several
+ * profiles, levels, latency modes and acceleration preferences; proven and
+ * failed results are cached so a later export does not pay the probe again.
+ * If nothing produces output the export fails fast with a platform message.
  *
- * Every rendered frame is encoded exactly once with its exact timestamp.
+ * Frames are CPU-owned I420 buffers copied from the rendered output (a
+ * plain buffer with no tie to the compositor canvas, context or GPU memory)
+ * — a conservative input format, not a proven fix. Every rendered frame is
+ * encoded exactly once with its exact timestamp; nothing is skipped.
  */
 
 export class ExportStageError extends Error {
 	constructor(
-		readonly stage: "mix" | "render" | "encode" | "mux" | "finalize",
+		readonly stage: "mix" | "negotiate" | "render" | "encode" | "mux" | "finalize",
 		readonly frame: number,
 		message: string,
 	) {
@@ -51,17 +50,12 @@ export interface ManagedEncoderStats {
 const QUEUE_LIMIT = 3;
 const STALL_FLUSH_MS = 1_500;
 const POLL_MS = 15;
-
-/** Candidate H.264 profiles/levels, most capable first (the engine decides what it supports). */
-const AVC_CODECS = [
-	"avc1.640033", // High 5.1
-	"avc1.64002A", // High 4.2
-	"avc1.640028", // High 4.0
-	"avc1.4D4033", // Main 5.1
-	"avc1.4D4028", // Main 4.0
-	"avc1.42E033", // Constrained Baseline 5.1
-	"avc1.42E01F", // Constrained Baseline 3.1
-];
+/** Frames encoded by one probe (more than the encoder's observed acceptance window). */
+const PROBE_FRAMES = 8;
+const PROBE_TIMEOUT_MS = 2_500;
+const NEGOTIATION_BUDGET_MS = 30_000;
+const NEGATIVE_CACHE_MS = 10 * 60 * 1000;
+const KEY_FRAME_INTERVAL = 120;
 
 /** Bits per pixel per frame for the export quality presets. */
 const QUALITY_BPP: Record<string, number> = {
@@ -73,46 +67,219 @@ const QUALITY_BPP: Record<string, number> = {
 
 const BT709: VideoColorSpaceInit = { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false };
 
+/** H.264 levels: max frame size (macroblocks), max macroblocks per second, `level_idc`. */
+const AVC_LEVELS: { frameMbs: number; mbsPerSecond: number; idc: number }[] = [
+	{ frameMbs: 396, mbsPerSecond: 11_880, idc: 0x15 }, // 2.1
+	{ frameMbs: 1_620, mbsPerSecond: 40_500, idc: 0x1e }, // 3.0
+	{ frameMbs: 3_600, mbsPerSecond: 108_000, idc: 0x1f }, // 3.1
+	{ frameMbs: 5_120, mbsPerSecond: 216_000, idc: 0x20 }, // 3.2
+	{ frameMbs: 8_192, mbsPerSecond: 245_760, idc: 0x28 }, // 4.0
+	{ frameMbs: 8_704, mbsPerSecond: 522_240, idc: 0x2a }, // 4.2
+	{ frameMbs: 22_080, mbsPerSecond: 589_824, idc: 0x32 }, // 5.0
+	{ frameMbs: 36_864, mbsPerSecond: 983_040, idc: 0x33 }, // 5.1
+	{ frameMbs: 36_864, mbsPerSecond: 2_073_600, idc: 0x34 }, // 5.2
+];
+
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function resolveAvcConfig({
+function hex(value: number): string {
+	return value.toString(16).toUpperCase().padStart(2, "0");
+}
+
+/** The lowest level that fits the geometry and rate (null: beyond H.264 5.2). */
+function levelFor(width: number, height: number, fps: number): number | null {
+	const frameMbs = Math.ceil(width / 16) * Math.ceil(height / 16);
+	const level = AVC_LEVELS.find((item) => frameMbs <= item.frameMbs && frameMbs * fps <= item.mbsPerSecond);
+	return level?.idc ?? null;
+}
+
+function bitrateFor(width: number, height: number, fps: number, quality: string): number {
+	return Math.max(200_000, Math.round(width * height * fps * (QUALITY_BPP[quality] ?? QUALITY_BPP.high)));
+}
+
+/** Candidate configurations, most broadly compatible encoder settings first. */
+export function avcCandidates({ width, height, fps, quality }: { width: number; height: number; fps: number; quality: string }): VideoEncoderConfig[] {
+	if (width % 2 !== 0 || height % 2 !== 0) return [];
+	const level = levelFor(width, height, fps);
+	if (level === null) return [];
+	const profiles = [
+		`avc1.42E0${hex(level)}`, // Constrained Baseline
+		`avc1.4D40${hex(level)}`, // Main
+		`avc1.6400${hex(level)}`, // High
+	];
+	const bitrate = bitrateFor(width, height, fps, quality);
+	const candidates: VideoEncoderConfig[] = [];
+	for (const latencyMode of ["realtime", "quality"] as const) {
+		for (const hardwareAcceleration of ["no-preference", "prefer-software"] as const) {
+			for (const codec of profiles) {
+				candidates.push({ codec, width, height, bitrate, framerate: fps, latencyMode, hardwareAcceleration, avc: { format: "avc" } });
+			}
+		}
+	}
+	return candidates;
+}
+
+/** CPU-owned I420 frame of the given size (BT.709 limited range). */
+function i420Frame(data: Uint8Array, width: number, height: number, timestampUs: number, durationUs: number): VideoFrame {
+	return new VideoFrame(data, {
+		format: "I420",
+		codedWidth: width,
+		codedHeight: height,
+		timestamp: timestampUs,
+		duration: durationUs,
+		colorSpace: BT709,
+	});
+}
+
+export type ProbeOutcome = "ok" | "rejected" | "error" | "no-output" | "incomplete" | "no-description" | "timeout" | "cancelled";
+
+/**
+ * Encodes `PROBE_FRAMES` frames with `config`, flushes, and accepts only when
+ * every frame came out (first one a key frame with a decoder configuration).
+ * Bounded; the probe encoder is always closed.
+ */
+async function probeConfig(config: VideoEncoderConfig, fps: number, cancelled: () => boolean): Promise<{ outcome: ProbeOutcome; outputs: number }> {
+	let outputs = 0;
+	let description = false;
+	let failed = false;
+	let encoder: VideoEncoder | null = null;
+	try {
+		try {
+			const { supported } = await VideoEncoder.isConfigSupported(config);
+			if (!supported) return { outcome: "rejected", outputs };
+		} catch {
+			return { outcome: "rejected", outputs };
+		}
+		encoder = new VideoEncoder({
+			output: (_chunk, meta) => {
+				outputs += 1;
+				if (meta?.decoderConfig?.description !== undefined) description = true;
+			},
+			error: () => {
+				failed = true;
+			},
+		});
+		encoder.configure(config);
+		const width = config.width;
+		const height = config.height;
+		const data = new Uint8Array(width * height * 1.5);
+		data.fill(16, 0, width * height);
+		data.fill(128, width * height);
+		const durationUs = Math.round(1_000_000 / fps);
+		for (let index = 0; index < PROBE_FRAMES; index += 1) {
+			const frame = i420Frame(data, width, height, index * durationUs, durationUs);
+			try {
+				encoder.encode(frame, { keyFrame: index === 0 });
+			} finally {
+				frame.close();
+			}
+		}
+		let flushed = false;
+		const flushing = encoder.flush().then(
+			() => {
+				flushed = true;
+			},
+			() => {
+				failed = true;
+			},
+		);
+		const deadline = Date.now() + PROBE_TIMEOUT_MS;
+		while (!flushed && !failed) {
+			await Promise.race([flushing, delay(50)]);
+			if (flushed || failed) break;
+			if (cancelled()) return { outcome: "cancelled", outputs };
+			if (Date.now() > deadline) return { outcome: outputs === 0 ? "no-output" : "timeout", outputs };
+		}
+		if (failed) return { outcome: "error", outputs };
+		if (outputs === 0) return { outcome: "no-output", outputs };
+		if (outputs < PROBE_FRAMES) return { outcome: "incomplete", outputs };
+		if (!description) return { outcome: "no-description", outputs };
+		return { outcome: "ok", outputs };
+	} catch {
+		return { outcome: "error", outputs };
+	} finally {
+		if (encoder !== null && encoder.state !== "closed") {
+			try {
+				encoder.close();
+			} catch {
+				// Already closed.
+			}
+		}
+	}
+}
+
+const proven = new Map<string, VideoEncoderConfig>();
+const failedGeometries = new Map<string, { at: number; tried: number }>();
+
+export type NegotiationResult =
+	| { status: "ok"; config: VideoEncoderConfig; cached: boolean }
+	| { status: "unsupported"; tried: number; cached: boolean }
+	| { status: "cancelled" };
+
+/**
+ * A configuration that functionally produced output on this engine, probed
+ * within a bounded budget (cached per geometry/fps/quality; failures cached
+ * per geometry for a while so retries do not pay the budget again).
+ */
+export async function negotiateAvcConfig({
 	width,
 	height,
 	fps,
 	quality,
+	cancelled,
+	onAttempt,
 }: {
 	width: number;
 	height: number;
 	fps: number;
 	quality: string;
-}): Promise<VideoEncoderConfig | null> {
-	if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") return null;
-	// 4:2:0 H.264 needs even dimensions (the I420 input is built at the output size).
-	if (width % 2 !== 0 || height % 2 !== 0) return null;
-	const bitrate = Math.max(
-		200_000,
-		Math.round(width * height * fps * (QUALITY_BPP[quality] ?? QUALITY_BPP.high)),
-	);
-	for (const codec of AVC_CODECS) {
-		const config: VideoEncoderConfig = {
-			codec,
-			width,
-			height,
-			bitrate,
-			framerate: fps,
-			latencyMode: "realtime",
-			avc: { format: "avc" },
-		};
-		try {
-			const { supported } = await VideoEncoder.isConfigSupported(config);
-			if (supported) return config;
-		} catch {
-			// Try the next profile.
+	cancelled: () => boolean;
+	/** Diagnostics: attempt index, candidate count, outcome, outputs (numeric/coarse only). */
+	onAttempt?: (attempt: number, total: number, outcome: ProbeOutcome, outputs: number) => void;
+}): Promise<NegotiationResult> {
+	if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") return { status: "unsupported", tried: 0, cached: false };
+	const key = `${width}x${height}@${fps}/${quality}`;
+	const geometry = `${width}x${height}`;
+	const known = proven.get(key);
+	if (known) return { status: "ok", config: known, cached: true };
+	const failure = failedGeometries.get(geometry);
+	if (failure && Date.now() - failure.at < NEGATIVE_CACHE_MS) return { status: "unsupported", tried: failure.tried, cached: true };
+
+	const candidates = avcCandidates({ width, height, fps, quality });
+	const budgetEnds = Date.now() + NEGOTIATION_BUDGET_MS;
+	let tried = 0;
+	for (const [index, config] of candidates.entries()) {
+		if (cancelled()) return { status: "cancelled" };
+		if (Date.now() > budgetEnds) break;
+		tried += 1;
+		const result = await probeConfig(config, fps, cancelled);
+		onAttempt?.(index, candidates.length, result.outcome, result.outputs);
+		if (result.outcome === "cancelled") return { status: "cancelled" };
+		if (result.outcome === "ok") {
+			proven.set(key, config);
+			return { status: "ok", config, cached: false };
 		}
 	}
-	return null;
+	failedGeometries.set(geometry, { at: Date.now(), tried });
+	return { status: "unsupported", tried, cached: false };
+}
+
+/** Cheap pre-check for the export dialog: false when this geometry recently failed negotiation or has no candidate. */
+export async function avcLikelySupported({ width, height, fps, quality }: { width: number; height: number; fps: number; quality: string }): Promise<boolean> {
+	if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") return false;
+	if (proven.has(`${width}x${height}@${fps}/${quality}`)) return true;
+	const failure = failedGeometries.get(`${width}x${height}`);
+	if (failure && Date.now() - failure.at < NEGATIVE_CACHE_MS) return false;
+	for (const config of avcCandidates({ width, height, fps, quality })) {
+		try {
+			if ((await VideoEncoder.isConfigSupported(config)).supported) return true;
+		} catch {
+			// Next.
+		}
+	}
+	return false;
 }
 
 /**
@@ -163,14 +330,7 @@ class I420FrameCopier {
 				data[vOffset + at] = 128 + ((112 * r - 102 * g - 10 * b + 128) >> 8);
 			}
 		}
-		return new VideoFrame(data, {
-			format: "I420",
-			codedWidth: width,
-			codedHeight: height,
-			timestamp: timestampUs,
-			duration: durationUs,
-			colorSpace: BT709,
-		});
+		return i420Frame(data, width, height, timestampUs, durationUs);
 	}
 }
 
@@ -187,6 +347,7 @@ export class ManagedAvcEncoder {
 	private flushes = 0;
 	private flushesDone = 0;
 
+	/** `config` must come from `negotiateAvcConfig` (functionally proven on this engine). */
 	constructor({
 		output,
 		config,
@@ -207,7 +368,7 @@ export class ManagedAvcEncoder {
 			output: (chunk, meta) => {
 				this.outputs += 1;
 				const packet = EncodedPacket.fromEncodedChunk(chunk);
-				// Muxing is serialised in output order (decode order; realtime H.264 has no reordering).
+				// Muxing is serialised in output order (decode order; without B-frames it is presentation order).
 				this.pending = this.pending
 					.then(() => this.source.add(packet, meta))
 					.then(() => {
@@ -221,7 +382,12 @@ export class ManagedAvcEncoder {
 				this.failure ??= error instanceof Error ? error : new Error(String(error));
 			},
 		});
-		this.encoder.configure(config);
+		try {
+			this.encoder.configure(config);
+		} catch (error) {
+			this.close();
+			throw error;
+		}
 	}
 
 	get stats(): ManagedEncoderStats {
@@ -281,7 +447,7 @@ export class ManagedAvcEncoder {
 					lastOutputs = this.outputs;
 					stalledSince = Date.now();
 				} else if (Date.now() - stalledSince > STALL_FLUSH_MS) {
-					// The platform encoder holds frames until it sees more input: make it complete what it has.
+					// Queued frames produce no output: ask the encoder to complete what it holds.
 					this.onStall?.(frame, this.stats);
 					await this.flush({ frame, deadline, cancelled });
 					stalledSince = Date.now();
@@ -290,7 +456,7 @@ export class ManagedAvcEncoder {
 			}
 			if (cancelled()) return;
 			this.check(frame);
-			this.encoder.encode(videoFrame, { keyFrame: frame % 120 === 0 });
+			this.encoder.encode(videoFrame, { keyFrame: frame % KEY_FRAME_INTERVAL === 0 });
 			this.submitted += 1;
 		} finally {
 			// encode() keeps its own reference; ours is released either way.

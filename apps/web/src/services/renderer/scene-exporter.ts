@@ -23,7 +23,7 @@ import type { ExportFormat, ExportQuality } from "@/export";
 import { CanvasRenderer } from "./canvas-renderer";
 import { videoCache } from "@/services/video-cache/service";
 import { reportExportStage } from "./export-diagnostics";
-import { ExportStageError, ManagedAvcEncoder, resolveAvcConfig } from "./managed-video-encoder";
+import { ExportStageError, ManagedAvcEncoder, negotiateAvcConfig } from "./managed-video-encoder";
 
 type ExportParams = {
 	width: number;
@@ -202,66 +202,43 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 				? new WebMOutputFormat()
 				: new Mp4OutputFormat(streaming ? { fastStart: false } : {});
 
+		// Managed H.264: a configuration is functionally proven on this engine BEFORE any output resource exists
+		// (bounded, cancellable, cached); with none, the export fails fast with a platform message.
+		let managedConfig: VideoEncoderConfig | null = null;
+		if (this.videoPipeline === "managed" && this.format === "mp4") {
+			reportExportStage({ phase: "negotiate", frame: 0, total: 0 });
+			const negotiated = await negotiateAvcConfig({
+				width: this.renderer.width,
+				height: this.renderer.height,
+				fps: fpsFloat,
+				quality: this.quality,
+				cancelled: () => this.isCancelled,
+				onAttempt: (attempt, total, outcome, outputs) =>
+					reportExportStage({ phase: `probe-${outcome}`, frame: attempt, total, counts: { outputs } }),
+			});
+			if (negotiated.status === "cancelled") {
+				this.emit("cancelled");
+				return false;
+			}
+			if (negotiated.status === "unsupported") {
+				reportExportStage({ phase: "failed-negotiate", frame: negotiated.tried, total: 0 });
+				throw new ExportStageError(
+					"negotiate",
+					0,
+					`当前设备的 H.264 编码器未能输出数据（已试验 ${negotiated.tried} 种编码配置，${this.renderer.width}×${this.renderer.height}），无法在本机导出 MP4。剪辑工程未受影响，可在 AIVP 桌面客户端导出。`,
+				);
+			}
+			managedConfig = negotiated.config;
+		}
+
 		const output = new Output({
 			format: outputFormat,
 			target,
 		});
 
-		// H.264 through the exporter's own WebCodecs encoder where the engine needs it (WebKit), else mediabunny's.
 		let videoSource: CanvasSource | null = null;
 		let managedEncoder: ManagedAvcEncoder | null = null;
-		if (this.videoPipeline === "managed" && this.format === "mp4") {
-			const config = await resolveAvcConfig({
-				width: this.renderer.width,
-				height: this.renderer.height,
-				fps: fpsFloat,
-				quality: this.quality,
-			});
-			if (!config) {
-				throw new ExportStageError("encode", 0, `当前设备无法以 ${this.renderer.width}×${this.renderer.height} 编码 H.264 视频`);
-			}
-			managedEncoder = new ManagedAvcEncoder({
-				output,
-				config,
-				frameRate: fpsFloat,
-				onStall: (frame, counts) => reportExportStage({ phase: "encode-flush", frame, total: frameCount, counts }),
-			});
-		} else {
-			videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
-				codec: this.format === "webm" ? "vp9" : "avc",
-				bitrate: qualityMap[this.quality],
-			});
-			output.addVideoTrack(videoSource, { frameRate: fpsFloat });
-		}
-
 		let audioSource: AudioBufferSource | null = null;
-		if (this.shouldIncludeAudio && this.audioBuffer) {
-			let audioCodec: "aac" | "opus" =
-				this.requestedAudioCodec ?? (this.format === "webm" ? "opus" : "aac");
-
-			if (
-				this.requestedAudioCodec === undefined &&
-				audioCodec === "aac" &&
-				typeof AudioEncoder !== "undefined"
-			) {
-				const { supported } = await AudioEncoder.isConfigSupported({
-					codec: "mp4a.40.2",
-					sampleRate: this.audioBuffer.sampleRate,
-					numberOfChannels: this.audioBuffer.numberOfChannels,
-					bitrate: 192000,
-				});
-				if (!supported) audioCodec = "opus";
-			}
-
-			audioSource = new AudioBufferSource({
-				codec: audioCodec,
-				bitrate: qualityMap[this.quality],
-			});
-			output.addAudioTrack(audioSource);
-			this.encodedAudioCodec = audioCodec;
-		} else {
-			this.encodedAudioCodec = null;
-		}
 
 		// A render abandoned by timeout/cancel keeps running and may hold the shared video cache's per-media
 		// frame chain: such sinks are dropped (re-created on next use) so the preview and a retry never wait on it.
@@ -280,7 +257,59 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		};
 
 		try {
-			await output.start();
+			// Setup inside the guarded section: a throw here still closes the encoder and cancels the output.
+			if (managedConfig !== null) {
+				// H.264 through the exporter's own WebCodecs encoder (proven configuration).
+				managedEncoder = new ManagedAvcEncoder({
+					output,
+					config: managedConfig,
+					frameRate: fpsFloat,
+					onStall: (frame, counts) => reportExportStage({ phase: "encode-flush", frame, total: frameCount, counts }),
+				});
+			} else {
+				videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
+					codec: this.format === "webm" ? "vp9" : "avc",
+					bitrate: qualityMap[this.quality],
+				});
+				output.addVideoTrack(videoSource, { frameRate: fpsFloat });
+			}
+
+			if (this.shouldIncludeAudio && this.audioBuffer) {
+				let audioCodec: "aac" | "opus" =
+					this.requestedAudioCodec ?? (this.format === "webm" ? "opus" : "aac");
+
+				if (
+					this.requestedAudioCodec === undefined &&
+					audioCodec === "aac" &&
+					typeof AudioEncoder !== "undefined"
+				) {
+					const probe = await this.bounded(
+						AudioEncoder.isConfigSupported({
+							codec: "mp4a.40.2",
+							sampleRate: this.audioBuffer.sampleRate,
+							numberOfChannels: this.audioBuffer.numberOfChannels,
+							bitrate: 192000,
+						}),
+						"encode",
+						0,
+						"音频编码能力检测超时",
+					);
+					if (probe === CANCELLED) return await abort();
+					if (!probe.supported) audioCodec = "opus";
+				}
+
+				audioSource = new AudioBufferSource({
+					codec: audioCodec,
+					bitrate: qualityMap[this.quality],
+				});
+				output.addAudioTrack(audioSource);
+				this.encodedAudioCodec = audioCodec;
+			} else {
+				this.encodedAudioCodec = null;
+			}
+
+			const started = await this.bounded(output.start(), "mux", 0, "成片封装启动超时");
+			if (started === CANCELLED) return await abort();
 
 			if (audioSource && this.audioBuffer) {
 				reportExportStage({ phase: "audio", frame: 0, total: frameCount });

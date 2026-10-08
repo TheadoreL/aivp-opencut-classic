@@ -4,7 +4,7 @@ import type {
 	ExportQuality,
 	ExportStreamChunk,
 } from "@/export";
-import { resolveAvcConfig } from "@/services/renderer/managed-video-encoder";
+import { avcLikelySupported } from "@/services/renderer/managed-video-encoder";
 import { canEncodeAudio, canEncodeVideo } from "mediabunny";
 import type { FrameRate } from "opencut-wasm";
 import { mediaTimeToSeconds } from "opencut-wasm";
@@ -63,10 +63,12 @@ class BridgeWriteError extends Error {
 
 /**
  * The iPad (WebKit) host encodes H.264 through the exporter's own WebCodecs
- * encoder (realtime mode, polled backpressure, flush on stall, bounded
- * waits) instead of mediabunny's canvas source, under which an iPad
- * Simulator export was observed to stop progressing after the first frames.
- * Chromium (desktop) keeps mediabunny's path.
+ * encoder (configuration proven by a functional encode probe, polled
+ * backpressure, flush on stall, bounded waits) instead of mediabunny's
+ * canvas source; on the iPad Simulator an encoder configuration accepted by
+ * `isConfigSupported()` was observed to stop producing output after the
+ * first frames (cause not established). Chromium (desktop) keeps
+ * mediabunny's path.
  */
 export function usesManagedVideo(host: AivpHostInfo): boolean {
 	return host.shell === "ipados";
@@ -75,8 +77,8 @@ export function usesManagedVideo(host: AivpHostInfo): boolean {
 async function videoEncodable(format: ExportFormat, width: number, height: number, managed: boolean): Promise<boolean> {
 	if (typeof VideoEncoder === "undefined") return false;
 	if (managed && format === "mp4") {
-		const fps = 30;
-		return (await resolveAvcConfig({ width, height, fps, quality: "high" })) !== null;
+		// Cheap pre-check; the export itself proves a configuration functionally (and caches the outcome).
+		return avcLikelySupported({ width, height, fps: 30, quality: "high" });
 	}
 	try {
 		return await canEncodeVideo(format === "webm" ? "vp9" : "avc", { width, height });

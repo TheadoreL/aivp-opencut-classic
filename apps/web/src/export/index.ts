@@ -25,6 +25,8 @@ export interface ExportOptions {
 	 * `ExportResult.externalAudio` (a host muxes it; engines without an audio encoder).
 	 */
 	externalAudio?: boolean;
+	/** `managed`: MP4/H.264 through the exporter's own WebCodecs encoder (engines needing explicit encoder handling). */
+	videoPipeline?: "default" | "managed";
 }
 
 export interface ExportResult {

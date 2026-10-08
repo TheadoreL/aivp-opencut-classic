@@ -155,7 +155,7 @@ export class RendererManager {
 		/** When given, container bytes are streamed here instead of returned as a buffer. */
 		writable?: WritableStream<ExportStreamChunk>;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio, audioCodec, externalAudio } = options;
+		const { format, quality, fps, includeAudio, audioCodec, externalAudio, videoPipeline } = options;
 
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
@@ -202,6 +202,7 @@ export class RendererManager {
 				shouldIncludeAudio: !!includeAudio && !externalAudio,
 				audioBuffer: audioBuffer || undefined,
 				audioCodec,
+				videoPipeline,
 			});
 
 			exporter.on("progress", (progress) => {

@@ -4,6 +4,7 @@ import type {
 	ExportQuality,
 	ExportStreamChunk,
 } from "@/export";
+import { resolveAvcConfig } from "@/services/renderer/managed-video-encoder";
 import { canEncodeAudio, canEncodeVideo } from "mediabunny";
 import type { FrameRate } from "opencut-wasm";
 import { mediaTimeToSeconds } from "opencut-wasm";
@@ -60,8 +61,23 @@ class BridgeWriteError extends Error {
 	}
 }
 
-async function videoEncodable(format: ExportFormat, width: number, height: number): Promise<boolean> {
+/**
+ * The iPad (WebKit) host encodes H.264 through the exporter's own WebCodecs
+ * encoder (realtime mode, polled backpressure, flush on stall, bounded
+ * waits) instead of mediabunny's canvas source, under which an iPad
+ * Simulator export was observed to stop progressing after the first frames.
+ * Chromium (desktop) keeps mediabunny's path.
+ */
+export function usesManagedVideo(host: AivpHostInfo): boolean {
+	return host.shell === "ipados";
+}
+
+async function videoEncodable(format: ExportFormat, width: number, height: number, managed: boolean): Promise<boolean> {
 	if (typeof VideoEncoder === "undefined") return false;
+	if (managed && format === "mp4") {
+		const fps = 30;
+		return (await resolveAvcConfig({ width, height, fps, quality: "high" })) !== null;
+	}
 	try {
 		return await canEncodeVideo(format === "webm" ? "vp9" : "avc", { width, height });
 	} catch {
@@ -96,9 +112,10 @@ export async function probeExportSupport({
 	width: number;
 	height: number;
 }): Promise<AivpFormatSupport[]> {
+	const managed = usesManagedVideo(host);
 	const [mp4Video, webmVideo, aac, opus] = await Promise.all([
-		videoEncodable("mp4", width, height),
-		videoEncodable("webm", width, height),
+		videoEncodable("mp4", width, height, managed),
+		videoEncodable("webm", width, height, managed),
 		audioEncodable("aac"),
 		audioEncodable("opus"),
 	]);
@@ -200,11 +217,14 @@ export async function exportToHost({
 	token,
 	request,
 	audio,
+	managedVideo = false,
 	onStage,
 }: {
 	bridge: AivpEditorBridge;
 	token: string;
 	request: AivpExportRequest;
+	/** Encode MP4/H.264 through the exporter's own WebCodecs encoder (see `usesManagedVideo`). */
+	managedVideo?: boolean;
 	/** Probed plan for the request's format (required when audio is included). */
 	audio: AivpAudioPlan | null;
 	onStage?: (stage: "encoding" | "audio" | "finishing") => void;
@@ -253,6 +273,7 @@ export async function exportToHost({
 				includeAudio: request.includeAudio,
 				audioCodec: audio?.mode === "encode" ? audio.codec : undefined,
 				externalAudio: hostMux,
+				videoPipeline: managedVideo && request.format === "mp4" ? "managed" : "default",
 			},
 			writable,
 		});

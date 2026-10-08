@@ -26,6 +26,7 @@ import {
 	exportToHost,
 	probeExportSupport,
 	unsupportedReason,
+	usesManagedVideo,
 	type AivpFormatSupport,
 } from "../export";
 import { useAivpStore } from "../store";
@@ -153,6 +154,7 @@ export function AivpExportDialog({
 			token: controller.getToken(),
 			request: { format, quality, includeAudio, fps: project.settings.fps },
 			audio: includeAudio ? selected.audio : null,
+			managedVideo: usesManagedVideo(host),
 			onStage: (step) => setStage({ kind: "exporting", step }),
 		});
 		if (outcome.status === "done") {

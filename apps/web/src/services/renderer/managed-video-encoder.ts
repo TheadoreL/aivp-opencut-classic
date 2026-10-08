@@ -135,23 +135,68 @@ function i420Frame(data: Uint8Array, width: number, height: number, timestampUs:
 
 export type ProbeOutcome = "ok" | "rejected" | "error" | "no-output" | "incomplete" | "no-description" | "timeout" | "cancelled";
 
+type Settled<T> = { kind: "value"; value: T } | { kind: "error" } | { kind: "timeout" } | { kind: "cancelled" };
+
+/**
+ * Waits for `work` until `deadline`, polling `cancelled`: a promise that
+ * never settles (e.g. an engine capability query) cannot hold the caller.
+ */
+async function settleWithin<T>(work: Promise<T>, deadline: number, cancelled: () => boolean): Promise<Settled<T>> {
+	const holder: { result: Settled<T> | null } = { result: null };
+	const watched = work.then(
+		(value) => {
+			holder.result = { kind: "value", value };
+		},
+		() => {
+			holder.result = { kind: "error" };
+		},
+	);
+	for (;;) {
+		if (holder.result !== null) return holder.result;
+		if (cancelled()) return { kind: "cancelled" };
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) return { kind: "timeout" };
+		await Promise.race([watched, delay(Math.min(50, remaining))]);
+	}
+}
+
+/** Bounded, cancellation-aware `VideoEncoder.isConfigSupported`. */
+async function configSupported(config: VideoEncoderConfig, deadline: number, cancelled: () => boolean): Promise<"supported" | "rejected" | "timeout" | "cancelled"> {
+	let query: Promise<VideoEncoderSupport>;
+	try {
+		query = VideoEncoder.isConfigSupported(config);
+	} catch {
+		return "rejected";
+	}
+	const settled = await settleWithin(query, deadline, cancelled);
+	if (settled.kind === "cancelled" || settled.kind === "timeout") return settled.kind;
+	return settled.kind === "value" && settled.value.supported === true ? "supported" : "rejected";
+}
+
 /**
  * Encodes `PROBE_FRAMES` frames with `config`, flushes, and accepts only when
  * every frame came out (first one a key frame with a decoder configuration).
- * Bounded; the probe encoder is always closed.
+ * Every wait (capability query, flush) is bounded by the probe timeout and
+ * the caller's `budgetEnds`, and cancellable; no probe encoder is created
+ * after cancellation, and one that was created is always closed.
  */
-async function probeConfig(config: VideoEncoderConfig, fps: number, cancelled: () => boolean): Promise<{ outcome: ProbeOutcome; outputs: number }> {
+async function probeConfig(
+	config: VideoEncoderConfig,
+	fps: number,
+	cancelled: () => boolean,
+	budgetEnds: number,
+): Promise<{ outcome: ProbeOutcome; outputs: number }> {
 	let outputs = 0;
 	let description = false;
 	let failed = false;
 	let encoder: VideoEncoder | null = null;
 	try {
-		try {
-			const { supported } = await VideoEncoder.isConfigSupported(config);
-			if (!supported) return { outcome: "rejected", outputs };
-		} catch {
-			return { outcome: "rejected", outputs };
-		}
+		const support = await configSupported(config, Math.min(Date.now() + PROBE_TIMEOUT_MS, budgetEnds), cancelled);
+		if (support === "cancelled") return { outcome: "cancelled", outputs };
+		if (support === "timeout") return { outcome: "timeout", outputs };
+		if (support === "rejected") return { outcome: "rejected", outputs };
+		if (cancelled()) return { outcome: "cancelled", outputs };
+		if (Date.now() >= budgetEnds) return { outcome: "timeout", outputs };
 		encoder = new VideoEncoder({
 			output: (_chunk, meta) => {
 				outputs += 1;
@@ -185,7 +230,7 @@ async function probeConfig(config: VideoEncoderConfig, fps: number, cancelled: (
 				failed = true;
 			},
 		);
-		const deadline = Date.now() + PROBE_TIMEOUT_MS;
+		const deadline = Math.min(Date.now() + PROBE_TIMEOUT_MS, budgetEnds);
 		while (!flushed && !failed) {
 			await Promise.race([flushing, delay(50)]);
 			if (flushed || failed) break;
@@ -210,8 +255,15 @@ async function probeConfig(config: VideoEncoderConfig, fps: number, cancelled: (
 	}
 }
 
+/** Proven and failed negotiations, both keyed by geometry, frame rate and quality. */
 const proven = new Map<string, VideoEncoderConfig>();
-const failedGeometries = new Map<string, { at: number; tried: number }>();
+const failedNegotiations = new Map<string, { at: number; tried: number }>();
+/** Total time the export dialog's pre-check may spend on capability queries. */
+const PRECHECK_BUDGET_MS = 3_000;
+
+function negotiationKey(width: number, height: number, fps: number, quality: string): string {
+	return `${width}x${height}@${fps}/${quality}`;
+}
 
 export type NegotiationResult =
 	| { status: "ok"; config: VideoEncoderConfig; cached: boolean }
@@ -220,8 +272,10 @@ export type NegotiationResult =
 
 /**
  * A configuration that functionally produced output on this engine, probed
- * within a bounded budget (cached per geometry/fps/quality; failures cached
- * per geometry for a while so retries do not pay the budget again).
+ * within a bounded budget that covers every capability query, flush and
+ * encode of the probes. Proven configurations and failures are both cached
+ * per geometry/fps/quality (failures for a while), so retries do not pay the
+ * budget again and one failed rate or quality never blocks another.
  */
 export async function negotiateAvcConfig({
 	width,
@@ -240,11 +294,11 @@ export async function negotiateAvcConfig({
 	onAttempt?: (attempt: number, total: number, outcome: ProbeOutcome, outputs: number) => void;
 }): Promise<NegotiationResult> {
 	if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") return { status: "unsupported", tried: 0, cached: false };
-	const key = `${width}x${height}@${fps}/${quality}`;
-	const geometry = `${width}x${height}`;
+	if (cancelled()) return { status: "cancelled" };
+	const key = negotiationKey(width, height, fps, quality);
 	const known = proven.get(key);
 	if (known) return { status: "ok", config: known, cached: true };
-	const failure = failedGeometries.get(geometry);
+	const failure = failedNegotiations.get(key);
 	if (failure && Date.now() - failure.at < NEGATIVE_CACHE_MS) return { status: "unsupported", tried: failure.tried, cached: true };
 
 	const candidates = avcCandidates({ width, height, fps, quality });
@@ -252,9 +306,9 @@ export async function negotiateAvcConfig({
 	let tried = 0;
 	for (const [index, config] of candidates.entries()) {
 		if (cancelled()) return { status: "cancelled" };
-		if (Date.now() > budgetEnds) break;
+		if (Date.now() >= budgetEnds) break;
 		tried += 1;
-		const result = await probeConfig(config, fps, cancelled);
+		const result = await probeConfig(config, fps, cancelled, budgetEnds);
 		onAttempt?.(index, candidates.length, result.outcome, result.outputs);
 		if (result.outcome === "cancelled") return { status: "cancelled" };
 		if (result.outcome === "ok") {
@@ -262,22 +316,42 @@ export async function negotiateAvcConfig({
 			return { status: "ok", config, cached: false };
 		}
 	}
-	failedGeometries.set(geometry, { at: Date.now(), tried });
+	if (cancelled()) return { status: "cancelled" };
+	failedNegotiations.set(key, { at: Date.now(), tried });
 	return { status: "unsupported", tried, cached: false };
 }
 
-/** Cheap pre-check for the export dialog: false when this geometry recently failed negotiation or has no candidate. */
-export async function avcLikelySupported({ width, height, fps, quality }: { width: number; height: number; fps: number; quality: string }): Promise<boolean> {
+/**
+ * Cheap pre-check for the export dialog: false when this exact
+ * geometry/fps/quality recently failed negotiation, no candidate exists, or
+ * no candidate's capability query answered "supported" within the bounded
+ * pre-check budget (cancellable).
+ */
+export async function avcLikelySupported({
+	width,
+	height,
+	fps,
+	quality,
+	cancelled = () => false,
+}: {
+	width: number;
+	height: number;
+	fps: number;
+	quality: string;
+	cancelled?: () => boolean;
+}): Promise<boolean> {
 	if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") return false;
-	if (proven.has(`${width}x${height}@${fps}/${quality}`)) return true;
-	const failure = failedGeometries.get(`${width}x${height}`);
+	if (cancelled()) return false;
+	const key = negotiationKey(width, height, fps, quality);
+	if (proven.has(key)) return true;
+	const failure = failedNegotiations.get(key);
 	if (failure && Date.now() - failure.at < NEGATIVE_CACHE_MS) return false;
+	const budgetEnds = Date.now() + PRECHECK_BUDGET_MS;
 	for (const config of avcCandidates({ width, height, fps, quality })) {
-		try {
-			if ((await VideoEncoder.isConfigSupported(config)).supported) return true;
-		} catch {
-			// Next.
-		}
+		if (cancelled() || Date.now() >= budgetEnds) return false;
+		const support = await configSupported(config, budgetEnds, cancelled);
+		if (support === "supported") return true;
+		if (support === "cancelled" || support === "timeout") return false;
 	}
 	return false;
 }

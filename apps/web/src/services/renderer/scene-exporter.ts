@@ -21,6 +21,7 @@ import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat, ExportQuality } from "@/export";
 import { CanvasRenderer } from "./canvas-renderer";
+import { videoCache } from "@/services/video-cache/service";
 import { reportExportStage } from "./export-diagnostics";
 import { ExportStageError, ManagedAvcEncoder, resolveAvcConfig } from "./managed-video-encoder";
 
@@ -223,7 +224,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 				output,
 				config,
 				frameRate: fpsFloat,
-				onFlushForStall: (frame) => reportExportStage({ phase: "encode-flush", frame, total: frameCount }),
+				onStall: (frame, counts) => reportExportStage({ phase: "encode-flush", frame, total: frameCount, counts }),
 			});
 		} else {
 			videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
@@ -262,7 +263,15 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			this.encodedAudioCodec = null;
 		}
 
+		// A render abandoned by timeout/cancel keeps running and may hold the shared video cache's per-media
+		// frame chain: such sinks are dropped (re-created on next use) so the preview and a retry never wait on it.
+		let renderInFlight = false;
+		const releaseAbandonedRender = (): void => {
+			if (renderInFlight) videoCache.clearAll();
+			renderInFlight = false;
+		};
 		const abort = async (): Promise<false> => {
+			releaseAbandonedRender();
 			managedEncoder?.close();
 			// Cancelling must not hang either (a stuck encoder may never settle its promises).
 			await Promise.race([output.cancel().catch(() => undefined), delay(5_000)]);
@@ -288,12 +297,13 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 				const timeTicks = i * ticksPerFrame;
 				const timeSeconds = mediaTimeToSeconds({ time: timeTicks });
 				const report = (phase: string) => {
-					// Coarse: on every phase change and every 12th frame.
-					if (phase !== lastPhase || i % 12 === 0) reportExportStage({ phase, frame: i, total: frameCount });
+					// Coarse: on every phase change and every 12th frame (numeric encoder counters only).
+					if (phase !== lastPhase || i % 12 === 0) reportExportStage({ phase, frame: i, total: frameCount, counts: managedEncoder?.stats });
 					lastPhase = phase;
 				};
 
 				report("render");
+				renderInFlight = true;
 				const rendered = await this.bounded(
 					this.renderer.render({ node: rootNode, time: timeTicks }),
 					"render",
@@ -301,6 +311,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 					`第 ${i + 1} 帧画面渲染超时（素材解码未返回）`,
 				);
 				if (rendered === CANCELLED) return await abort();
+				renderInFlight = false;
 
 				report("encode");
 				if (managedEncoder) {
@@ -352,7 +363,9 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 				phase: error instanceof ExportStageError ? `failed-${error.stage}` : "failed",
 				frame: error instanceof ExportStageError ? error.frame : -1,
 				total: frameCount,
+				counts: managedEncoder?.stats,
 			});
+			releaseAbandonedRender();
 			managedEncoder?.close();
 			await Promise.race([output.cancel().catch(() => undefined), delay(5_000)]);
 			throw error;

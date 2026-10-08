@@ -8,11 +8,45 @@ import type {
 } from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
+import { reportExportStage } from "@/services/renderer/export-diagnostics";
+import { ExportStageError } from "@/services/renderer/managed-video-encoder";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/media/audio";
 import { formatTimecode } from "opencut-wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
+
+/** Longest the timeline audio mix (decode + mix of every source) may take before an export fails. */
+const MIX_TIMEOUT_MS = 180_000;
+
+/** Waits for the audio mix, polling cancellation; fails with an actionable error when it does not settle in time. */
+async function boundedMix(
+	work: Promise<AudioBuffer | null>,
+	cancelled: () => boolean,
+): Promise<AudioBuffer | null | "cancelled"> {
+	const started = Date.now();
+	const state: { done: boolean; value: AudioBuffer | null; error: unknown } = { done: false, value: null, error: null };
+	const finished = work.then(
+		(value) => {
+			state.done = true;
+			state.value = value;
+		},
+		(error: unknown) => {
+			state.done = true;
+			state.error = error ?? new Error("音频混合失败");
+		},
+	);
+	while (!state.done) {
+		await Promise.race([finished, new Promise((resolve) => setTimeout(resolve, 100))]);
+		if (state.done) break;
+		if (cancelled()) return "cancelled";
+		if (Date.now() - started > MIX_TIMEOUT_MS) {
+			throw new ExportStageError("mix", 0, "音频解码与混合超时，已停止导出。剪辑工程未受影响，可取消“包含音频”后重试或改用桌面客户端导出。");
+		}
+	}
+	if (state.error !== null) throw state.error;
+	return state.value;
+}
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -177,11 +211,18 @@ export class RendererManager {
 			let audioBuffer: AudioBuffer | null = null;
 			if (includeAudio) {
 				onProgress?.({ progress: 0.05 });
-				audioBuffer = await createTimelineAudioBuffer({
-					tracks,
-					mediaAssets,
-					duration,
-				});
+				reportExportStage({ phase: "mix", frame: 0, total: 0 });
+				// Bounded and cancellable: decoding/mixing every audio source must not hang the export.
+				const mixed = await boundedMix(
+					createTimelineAudioBuffer({
+						tracks,
+						mediaAssets,
+						duration,
+					}),
+					() => onCancel?.() === true,
+				);
+				if (mixed === "cancelled") return { success: false, cancelled: true };
+				audioBuffer = mixed;
 			}
 
 			const scene = buildScene({

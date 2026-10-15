@@ -6,11 +6,12 @@ import { Toaster as Sonner } from "sonner";
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
-	const { theme = "system" } = useTheme();
+	// AIVP: a forced theme (the embedded editor follows the studio host) wins over the stored one.
+	const { theme = "system", forcedTheme } = useTheme();
 
 	return (
 		<Sonner
-			theme={theme as ToasterProps["theme"]}
+			theme={(forcedTheme ?? theme) as ToasterProps["theme"]}
 			className="toaster group"
 			position="bottom-right"
 			offset={20}

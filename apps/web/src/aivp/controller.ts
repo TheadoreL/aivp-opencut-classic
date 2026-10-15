@@ -15,6 +15,7 @@ import {
 	aivpBridge,
 	errorText,
 	LEGACY_HOST,
+	parseEditorTheme,
 	type AivpAccessState,
 	type AivpBridgeError,
 	type AivpEditorBridge,
@@ -210,6 +211,8 @@ export class AivpEditorController {
 			host: booted.data.host ?? LEGACY_HOST,
 			access: booted.data.session.access,
 			phase: "opening",
+			// C56: the studio's appearance (older hosts send none: 星海).
+			theme: parseEditorTheme(booted.data.appearance?.theme) ?? "dark",
 		});
 		this.disposers.push(this.bridge.onEvent((event) => this.onHostEvent(event)));
 		try {
@@ -1054,6 +1057,12 @@ export class AivpEditorController {
 			case "close-requested":
 				void this.handleCloseRequest(event.reason);
 				break;
+			case "theme": {
+				// Appearance only; an unknown value keeps the current theme.
+				const theme = parseEditorTheme(event.theme);
+				if (theme !== null) aivpState().set({ theme });
+				break;
+			}
 			case "media-progress":
 				aivpState().setMediaState(event.entryId, {
 					status: "downloading",

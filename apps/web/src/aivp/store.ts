@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
 	AivpAccessState,
+	AivpEditorTheme,
 	AivpHostInfo,
 	AivpManifest,
 	AivpSnapshotMeta,
@@ -67,6 +68,8 @@ export interface AivpEditorState {
 	closing: boolean;
 	/** The open project is being replaced (history/conflict/recovery): editor panels are unmounted. */
 	replacing: boolean;
+	/** C56: appearance requested by the studio host (星海 until the host reports otherwise). */
+	theme: AivpEditorTheme;
 	set: (partial: Partial<AivpEditorState>) => void;
 	setMediaState: (entryId: string, state: MediaEntryState) => void;
 }
@@ -89,6 +92,7 @@ export const useAivpStore = create<AivpEditorState>((set) => ({
 	notice: null,
 	closing: false,
 	replacing: false,
+	theme: "dark",
 	set: (partial) => set(partial),
 	setMediaState: (entryId, state) =>
 		set((current) => ({

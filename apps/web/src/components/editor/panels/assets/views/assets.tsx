@@ -535,6 +535,8 @@ function MediaActions({
 							}
 							disabled={isProcessing}
 							className="items-center justify-center"
+							// AIVP: icon-only control (the tooltip is not its accessible name).
+							aria-label={mediaViewMode === "grid" ? "切换为列表视图" : "切换为网格视图"}
 						>
 							{mediaViewMode === "grid" ? (
 								<HugeiconsIcon icon={LeftToRightListDashIcon} />
@@ -560,6 +562,8 @@ function MediaActions({
 									variant="ghost"
 									disabled={isProcessing}
 									className="items-center justify-center"
+									// AIVP: icon-only menu button.
+									aria-label="素材排序"
 								>
 									<HugeiconsIcon icon={SortingOneNineIcon} />
 								</Button>

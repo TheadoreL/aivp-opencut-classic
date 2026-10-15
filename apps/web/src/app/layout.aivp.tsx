@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import "../aivp/aivp-theme.css";
+import { AivpThemeProvider } from "../aivp/components/aivp-theme-provider";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
 
@@ -37,18 +37,13 @@ export default function AivpRootLayout({
 	return (
 		<html lang="zh-CN" className="dark aivp-editor" suppressHydrationWarning>
 			<body className="font-sans antialiased">
-				<ThemeProvider
-					attribute="class"
-					forcedTheme="dark"
-					defaultTheme="dark"
-					enableSystem={false}
-					disableTransitionOnChange={true}
-				>
+				{/* C56: 星海 by default; the host may switch it to 晴空 (enum only). */}
+				<AivpThemeProvider>
 					<TooltipProvider>
 						<Toaster />
 						{children}
 					</TooltipProvider>
-				</ThemeProvider>
+				</AivpThemeProvider>
 			</body>
 		</html>
 	);

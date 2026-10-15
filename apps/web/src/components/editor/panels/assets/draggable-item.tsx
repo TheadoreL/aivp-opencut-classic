@@ -238,6 +238,8 @@ function PlusButton({
 				onClick?.();
 			}}
 			title={tooltipText}
+			// AIVP: icon-only control; same name as the touch variant above.
+			aria-label="添加到时间线"
 		>
 			<Plus />
 		</Button>

@@ -360,3 +360,185 @@ html.aivp-touch .aivp-pane-tabs button {
 		transition-duration: 0.01ms !important;
 	}
 }
+
+/*
+ * C56 晴空 (daylight), selected by the studio host (`html.aivp-editor.light`, via the forced
+ * next-themes theme). Page #edf4f8, planes #ffffff / #f5f9fc, text #193348, interaction #17647c,
+ * line #c6d6e1. The preview canvas and media thumbnails keep their own pixels.
+ */
+html.aivp-editor.light {
+	--background: #f5f9fc;
+	--foreground: #193348;
+	--card: #ffffff;
+	--card-foreground: #193348;
+	--popover: #ffffff;
+	--popover-hover: #eef5f9;
+	--popover-foreground: #193348;
+	--primary: #17647c;
+	--primary-foreground: #ffffff;
+	--secondary: #dcedf3;
+	--secondary-border: #8cc1d1;
+	--secondary-foreground: #0f4f63;
+	--muted: #dfe8ee;
+	--muted-foreground: #475f72;
+	--accent: #eaf2f7;
+	--accent-foreground: #193348;
+	--destructive: #b63e37;
+	--destructive-foreground: #ffffff;
+	--constructive: #237351;
+	--constructive-foreground: #ffffff;
+	--caution: #825a17;
+	--caution-foreground: #ffffff;
+	--border: #c6d6e1;
+	--input: #ffffff;
+	--ring: #1d7894;
+	--sidebar-background: #f5f9fc;
+	--sidebar-foreground: #193348;
+	--sidebar-primary: #17647c;
+	--sidebar-primary-foreground: #ffffff;
+	--sidebar-accent: #eaf2f7;
+	--sidebar-accent-foreground: #193348;
+	--sidebar-border: #c6d6e1;
+	--sidebar-ring: #1d7894;
+	--sidebar: #f5f9fc;
+	--font-inter: -apple-system, BlinkMacSystemFont, "PingFang SC",
+		"Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+	color-scheme: light;
+	background: #edf4f8;
+}
+
+html.aivp-editor.light .panel {
+	--background: #ffffff;
+	--foreground: #193348;
+	--card: #ffffff;
+	--card-foreground: #193348;
+	--secondary: #dcedf3;
+	--secondary-border: #8cc1d1;
+	--secondary-foreground: #0f4f63;
+	--muted: #dfe8ee;
+	--muted-foreground: #475f72;
+	--accent: #eef5f9;
+	--accent-foreground: #193348;
+	--border: #d5e2ea;
+	--input: #f5f9fc;
+	--ring: #1d7894;
+}
+
+html.aivp-editor.light body {
+	background: #edf4f8;
+}
+
+html.aivp-editor.light :focus-visible {
+	outline-color: #1d7894;
+}
+
+html.aivp-editor.light .aivp-header {
+	border-bottom-color: #19334817;
+	background: #f8fbfdeb;
+}
+
+html.aivp-editor.light .aivp-brand {
+	color: #193348;
+}
+
+html.aivp-editor.light .aivp-brand small,
+html.aivp-editor.light .aivp-crumbs,
+html.aivp-editor.light .aivp-crumbs button {
+	color: #4f6a7e;
+}
+
+html.aivp-editor.light .aivp-crumbs button:hover {
+	color: #17647c;
+}
+
+html.aivp-editor.light .aivp-crumbs strong {
+	color: #193348;
+}
+
+html.aivp-editor.light .aivp-status {
+	border-color: #c6d6e1;
+	color: #3f5b70;
+}
+
+html.aivp-editor.light .aivp-status--ok {
+	color: #1f6848;
+	border-color: #9fcfb8;
+}
+
+html.aivp-editor.light .aivp-status--busy {
+	color: #17647c;
+	border-color: #8cc1d1;
+}
+
+html.aivp-editor.light .aivp-status--warn {
+	color: #7a5512;
+	border-color: #e2c98f;
+}
+
+html.aivp-editor.light .aivp-status--danger {
+	color: #a3352f;
+	border-color: #e9b4ae;
+}
+
+html.aivp-editor.light .aivp-banner {
+	border-bottom-color: #c6d6e1;
+}
+
+html.aivp-editor.light .aivp-banner--warn {
+	color: #6e4c12;
+	background: #fbf3e2;
+}
+
+html.aivp-editor.light .aivp-banner--danger {
+	color: #9b3530;
+	background: #fcecea;
+}
+
+html.aivp-editor.light .aivp-banner--info {
+	color: #135a70;
+	background: #e3f2f6;
+}
+
+html.aivp-editor.light .aivp-screen {
+	background: radial-gradient(ellipse at 80% 30%, #fbe7cf38, transparent 45%),
+		#edf4f8;
+	color: #193348;
+}
+
+html.aivp-editor.light .aivp-panel-status {
+	color: #526b7e;
+}
+
+html.aivp-editor.light .aivp-closing {
+	background: #edf4f8cc;
+	color: #193348;
+}
+
+html.aivp-editor.light .aivp-closing > div {
+	border-color: #c6d6e1;
+	background: #ffffff;
+	box-shadow: 0 14px 36px #1933481f;
+}
+
+html.aivp-editor.light .aivp-media-row {
+	border-color: #d5e2ea;
+}
+
+html.aivp-editor.light .aivp-media-row small {
+	color: #4e6578;
+}
+
+html.aivp-editor.light .aivp-pane-tabs {
+	border-bottom-color: #c6d6e1;
+	background: #f5f9fc;
+}
+
+html.aivp-editor.light .aivp-pane-tabs button {
+	color: #4f6a7e;
+}
+
+html.aivp-editor.light .aivp-pane-tabs button[aria-selected="true"] {
+	border-color: #8cc1d1;
+	background: #dcedf3;
+	color: #0f4f63;
+}

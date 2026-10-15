@@ -144,6 +144,14 @@ export interface AivpExportFile {
 	details?: AivpExportDetails;
 }
 
+/** C56: the studio's resolved appearance (晴空 light / 星海 dark), forwarded by the host. */
+export type AivpEditorTheme = "light" | "dark";
+
+/** Exact-match parse; anything else is `null` (the editor then keeps its current theme). */
+export function parseEditorTheme(value: unknown): AivpEditorTheme | null {
+	return value === "light" || value === "dark" ? value : null;
+}
+
 /** The shell the editor runs in and what it offers beyond the common operations. */
 export interface AivpHostInfo {
 	shell: "desktop" | "ipados";
@@ -199,11 +207,19 @@ export type AivpHostEvent =
 			sentBytes: number;
 			totalBytes: number;
 	  }
-	| { type: "media-progress"; entryId: string; receivedBytes: number; totalBytes: number };
+	| { type: "media-progress"; entryId: string; receivedBytes: number; totalBytes: number }
+	/** C56: the studio switched appearance (older hosts never send it: the editor stays 星海). */
+	| { type: "theme"; theme: AivpEditorTheme };
 
 export interface AivpEditorBridge {
 	bootstrap(): Promise<
-		AivpResult<{ session: AivpSession; workspace: AivpWorkspaceInfo; host?: AivpHostInfo }>
+		AivpResult<{
+			session: AivpSession;
+			workspace: AivpWorkspaceInfo;
+			host?: AivpHostInfo;
+			/** C56: the studio's appearance when the editor opened (absent: older host, 星海). */
+			appearance?: { theme: AivpEditorTheme };
+		}>
 	>;
 	heartbeat(token: string): Promise<AivpResult<AivpSession>>;
 	snapshots: {

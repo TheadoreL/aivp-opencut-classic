@@ -542,3 +542,229 @@ html.aivp-editor.light .aivp-pane-tabs button[aria-selected="true"] {
 	background: #dcedf3;
 	color: #0f4f63;
 }
+
+/*
+ * C58 高对比度 (`html.aivp-editor[data-contrast="high"]`, forwarded by the studio host independently of
+ * 晴空 / 星海): the same layout with solid planes, near-white / near-black ink, ≥3:1 borders and the
+ * studio's focus colour. Colour only: the preview canvas, thumbnails and waveforms keep their own pixels.
+ */
+html.aivp-editor.dark[data-contrast="high"],
+html.aivp-editor.dark[data-contrast="high"] .panel {
+	--background: #02060c;
+	--foreground: #ffffff;
+	--card: #050b14;
+	--card-foreground: #ffffff;
+	--popover: #050b14;
+	--popover-hover: #0f1d2c;
+	--popover-foreground: #ffffff;
+	--primary: #a6ecf7;
+	--primary-foreground: #02060c;
+	--secondary: #0b3445;
+	--secondary-border: #a6ecf7;
+	--secondary-foreground: #ffffff;
+	--muted: #0f1d2c;
+	--muted-foreground: #d7e3ed;
+	--accent: #12283a;
+	--accent-foreground: #ffffff;
+	--destructive: #ffc4bc;
+	--destructive-foreground: #02060c;
+	--constructive: #a8f0cc;
+	--constructive-foreground: #02060c;
+	--caution: #ffdc8f;
+	--caution-foreground: #02060c;
+	--border: #8fb3cc;
+	--input: #000000;
+	--ring: #ffd75e;
+	--sidebar-background: #02060c;
+	--sidebar-foreground: #ffffff;
+	--sidebar-primary: #a6ecf7;
+	--sidebar-primary-foreground: #02060c;
+	--sidebar-accent: #12283a;
+	--sidebar-accent-foreground: #ffffff;
+	--sidebar-border: #8fb3cc;
+	--sidebar-ring: #ffd75e;
+	--sidebar: #02060c;
+}
+
+html.aivp-editor.dark[data-contrast="high"],
+html.aivp-editor.dark[data-contrast="high"] body {
+	background: #02060c;
+}
+
+html.aivp-editor.light[data-contrast="high"],
+html.aivp-editor.light[data-contrast="high"] .panel {
+	--background: #ffffff;
+	--foreground: #000c17;
+	--card: #ffffff;
+	--card-foreground: #000c17;
+	--popover: #ffffff;
+	--popover-hover: #edf2f6;
+	--popover-foreground: #000c17;
+	--primary: #004a61;
+	--primary-foreground: #ffffff;
+	--secondary: #d7eef5;
+	--secondary-border: #004a61;
+	--secondary-foreground: #000c17;
+	--muted: #edf2f6;
+	--muted-foreground: #1c3447;
+	--accent: #e3eef4;
+	--accent-foreground: #000c17;
+	--destructive: #8f1a12;
+	--destructive-foreground: #ffffff;
+	--constructive: #0a5233;
+	--constructive-foreground: #ffffff;
+	--caution: #5e3b00;
+	--caution-foreground: #ffffff;
+	--border: #3d5a70;
+	--input: #ffffff;
+	--ring: #a33a00;
+	--sidebar-background: #ffffff;
+	--sidebar-foreground: #000c17;
+	--sidebar-primary: #004a61;
+	--sidebar-primary-foreground: #ffffff;
+	--sidebar-accent: #e3eef4;
+	--sidebar-accent-foreground: #000c17;
+	--sidebar-border: #3d5a70;
+	--sidebar-ring: #a33a00;
+	--sidebar: #ffffff;
+}
+
+html.aivp-editor.light[data-contrast="high"],
+html.aivp-editor.light[data-contrast="high"] body {
+	background: #ffffff;
+}
+
+html.aivp-editor[data-contrast="high"] :focus-visible {
+	outline: 3px solid var(--ring) !important;
+}
+
+html.aivp-editor[data-contrast="high"] * {
+	text-shadow: none !important;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-header,
+html.aivp-editor[data-contrast="high"] .aivp-pane-tabs {
+	border-bottom: 1px solid var(--border);
+	background: var(--background);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-brand,
+html.aivp-editor[data-contrast="high"] .aivp-crumbs strong,
+html.aivp-editor[data-contrast="high"] .aivp-crumbs,
+html.aivp-editor[data-contrast="high"] .aivp-crumbs button,
+html.aivp-editor[data-contrast="high"] .aivp-brand small,
+html.aivp-editor[data-contrast="high"] .aivp-panel-status,
+html.aivp-editor[data-contrast="high"] .aivp-media-row small {
+	color: var(--foreground);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-crumbs button {
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-crumbs button:hover {
+	color: var(--primary);
+}
+
+/* Status pills: the dot becomes a shape per state, next to the status word. */
+html.aivp-editor[data-contrast="high"] .aivp-status {
+	border-color: var(--border);
+	background: var(--background);
+	color: var(--foreground);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status::before {
+	opacity: 1;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--ok {
+	border-color: var(--constructive);
+	color: var(--constructive);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--ok::before {
+	border-radius: 1px;
+	clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 20%, 86% 6%, 38% 72%);
+	width: 10px;
+	height: 10px;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--busy {
+	border-color: var(--primary);
+	color: var(--primary);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--busy::before {
+	background: transparent;
+	border: 2px solid currentColor;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--warn {
+	border-color: var(--caution);
+	color: var(--caution);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--warn::before {
+	border-radius: 1px;
+	transform: rotate(45deg);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--danger {
+	border-color: var(--destructive);
+	color: var(--destructive);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-status--danger::before {
+	border-radius: 1px;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-banner {
+	border-bottom: 2px solid var(--border);
+	color: var(--foreground);
+	background: var(--card);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-banner--warn {
+	border-left: 5px solid var(--caution);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-banner--danger {
+	border-left: 5px solid var(--destructive);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-banner--info {
+	border-left: 5px solid var(--primary);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-screen {
+	background: var(--background);
+	color: var(--foreground);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-closing {
+	background: var(--background);
+	color: var(--foreground);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-closing > div {
+	border: 2px solid var(--border);
+	background: var(--card);
+	box-shadow: none;
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-media-row {
+	border-color: var(--border);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-pane-tabs button {
+	color: var(--foreground);
+}
+
+html.aivp-editor[data-contrast="high"] .aivp-pane-tabs button[aria-selected="true"] {
+	border-color: var(--primary);
+	background: var(--secondary);
+	color: var(--secondary-foreground);
+	box-shadow: inset 0 -3px 0 var(--primary);
+	font-weight: 600;
+}

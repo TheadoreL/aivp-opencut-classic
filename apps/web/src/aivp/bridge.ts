@@ -152,6 +152,14 @@ export function parseEditorTheme(value: unknown): AivpEditorTheme | null {
 	return value === "light" || value === "dark" ? value : null;
 }
 
+/** C58: the studio's 高对比度 preference, independent of the theme, forwarded by the host. */
+export type AivpEditorContrast = "standard" | "high";
+
+/** Exact-match parse; anything else is `null` (the editor then keeps its current contrast). */
+export function parseEditorContrast(value: unknown): AivpEditorContrast | null {
+	return value === "standard" || value === "high" ? value : null;
+}
+
 /** The shell the editor runs in and what it offers beyond the common operations. */
 export interface AivpHostInfo {
 	shell: "desktop" | "ipados";
@@ -209,7 +217,9 @@ export type AivpHostEvent =
 	  }
 	| { type: "media-progress"; entryId: string; receivedBytes: number; totalBytes: number }
 	/** C56: the studio switched appearance (older hosts never send it: the editor stays 星海). */
-	| { type: "theme"; theme: AivpEditorTheme };
+	| { type: "theme"; theme: AivpEditorTheme }
+	/** C58: the studio switched 高对比度 (older hosts never send it: standard contrast). */
+	| { type: "contrast"; contrast: AivpEditorContrast };
 
 export interface AivpEditorBridge {
 	bootstrap(): Promise<
@@ -217,8 +227,8 @@ export interface AivpEditorBridge {
 			session: AivpSession;
 			workspace: AivpWorkspaceInfo;
 			host?: AivpHostInfo;
-			/** C56: the studio's appearance when the editor opened (absent: older host, 星海). */
-			appearance?: { theme: AivpEditorTheme };
+			/** C56: the studio's appearance when the editor opened (absent: older host, 星海). C58: `contrast` (absent: standard). */
+			appearance?: { theme: AivpEditorTheme; contrast?: AivpEditorContrast };
 		}>
 	>;
 	heartbeat(token: string): Promise<AivpResult<AivpSession>>;

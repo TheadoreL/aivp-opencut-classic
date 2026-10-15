@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
 	AivpAccessState,
+	AivpEditorContrast,
 	AivpEditorTheme,
 	AivpHostInfo,
 	AivpManifest,
@@ -70,6 +71,8 @@ export interface AivpEditorState {
 	replacing: boolean;
 	/** C56: appearance requested by the studio host (星海 until the host reports otherwise). */
 	theme: AivpEditorTheme;
+	/** C58: 高对比度 requested by the studio host (standard until the host reports otherwise). */
+	contrast: AivpEditorContrast;
 	set: (partial: Partial<AivpEditorState>) => void;
 	setMediaState: (entryId: string, state: MediaEntryState) => void;
 }
@@ -93,6 +96,7 @@ export const useAivpStore = create<AivpEditorState>((set) => ({
 	closing: false,
 	replacing: false,
 	theme: "dark",
+	contrast: "standard",
 	set: (partial) => set(partial),
 	setMediaState: (entryId, state) =>
 		set((current) => ({

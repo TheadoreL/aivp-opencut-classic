@@ -15,6 +15,7 @@ import {
 	aivpBridge,
 	errorText,
 	LEGACY_HOST,
+	parseEditorContrast,
 	parseEditorTheme,
 	type AivpAccessState,
 	type AivpBridgeError,
@@ -213,6 +214,8 @@ export class AivpEditorController {
 			phase: "opening",
 			// C56: the studio's appearance (older hosts send none: 星海).
 			theme: parseEditorTheme(booted.data.appearance?.theme) ?? "dark",
+			// C58: and its 高对比度 preference (older hosts send none: standard).
+			contrast: parseEditorContrast(booted.data.appearance?.contrast) ?? "standard",
 		});
 		this.disposers.push(this.bridge.onEvent((event) => this.onHostEvent(event)));
 		try {
@@ -1061,6 +1064,12 @@ export class AivpEditorController {
 				// Appearance only; an unknown value keeps the current theme.
 				const theme = parseEditorTheme(event.theme);
 				if (theme !== null) aivpState().set({ theme });
+				break;
+			}
+			case "contrast": {
+				// C58: contrast only; an unknown value keeps the current contrast.
+				const contrast = parseEditorContrast(event.contrast);
+				if (contrast !== null) aivpState().set({ contrast });
 				break;
 			}
 			case "media-progress":

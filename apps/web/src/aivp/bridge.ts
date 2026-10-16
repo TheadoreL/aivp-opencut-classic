@@ -1,7 +1,8 @@
 /**
  * Typed view of the AIVP editor bridge (`window.aivpEditor`), exposed by the
- * host shell to this origin only: the desktop editor preload (Electron) or
- * the iPad shell's injected adapter (WKWebView, native message handler).
+ * host shell to this origin only: the desktop editor preload (Electron),
+ * the iPad shell's injected adapter (WKWebView, native message handler) or
+ * the Android shell's injected adapter (WebView, origin-scoped message listener).
  * Every call carries the short-lived editing-session token the host issued
  * for THIS editor view and episode; the host re-checks sender view/frame/
  * origin, token, account, license and project access on every call. There is
@@ -162,7 +163,7 @@ export function parseEditorContrast(value: unknown): AivpEditorContrast | null {
 
 /** The shell the editor runs in and what it offers beyond the common operations. */
 export interface AivpHostInfo {
-	shell: "desktop" | "ipados";
+	shell: "desktop" | "ipados" | "android";
 	/** Shown inside the studio workspace (its header/返回 stay visible above the editor). */
 	embedded: boolean;
 	capabilities: {

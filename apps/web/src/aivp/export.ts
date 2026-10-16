@@ -67,8 +67,8 @@ class BridgeWriteError extends Error {
  * backpressure, flush on stall, bounded waits) instead of mediabunny's
  * canvas source; on the iPad Simulator an encoder configuration accepted by
  * `isConfigSupported()` was observed to stop producing output after the
- * first frames (cause not established). Chromium (desktop) keeps
- * mediabunny's path.
+ * first frames (cause not established). Chromium (desktop, and the Android
+ * System WebView) keeps mediabunny's path.
  */
 export function usesManagedVideo(host: AivpHostInfo): boolean {
 	return host.shell === "ipados";

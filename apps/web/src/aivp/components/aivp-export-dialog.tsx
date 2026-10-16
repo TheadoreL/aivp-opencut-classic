@@ -132,7 +132,7 @@ export function AivpExportDialog({
 	const empty = durationSeconds <= 0;
 	const selected = support?.find((item) => item.format === format);
 	const blocked = support === null ? null : unsupportedReason({ format, quality, includeAudio }, selected);
-	const saveLabel = host.shell === "ipados" ? "存储到“文件”…" : "保存到本机…";
+	const saveLabel = host.shell === "ipados" ? "存储到“文件”…" : host.shell === "android" ? "保存到设备…" : "保存到本机…";
 	const canShare = host.capabilities.share && typeof controller.getBridge().exports.share === "function";
 
 	const close = (next: boolean) => {

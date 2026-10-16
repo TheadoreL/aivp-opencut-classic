@@ -152,8 +152,20 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 	if (variant !== "full") {
 		const top =
 			variant === "split" ? (
-				<ResizablePanelGroup direction="horizontal" className="size-full gap-[0.19rem] px-2">
-					<ResizablePanel defaultSize={40} minSize={28} maxSize={60} className="min-w-0 flex flex-col">
+				<ResizablePanelGroup
+					key="aivp-editor-split-inner"
+					id="aivp-editor-split-inner"
+					direction="horizontal"
+					className="size-full gap-[0.19rem] px-2"
+				>
+					<ResizablePanel
+						id="aivp-editor-split-side"
+						order={1}
+						defaultSize={40}
+						minSize={28}
+						maxSize={60}
+						className="min-w-0 flex flex-col"
+					>
 						<PaneTabs
 							label="侧栏"
 							tabs={[
@@ -166,7 +178,13 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 						<div className="min-h-0 flex-1">{sidePane === "assets" ? <AssetsPanel /> : <PropertiesPanel />}</div>
 					</ResizablePanel>
 					<ResizableHandle withHandle />
-					<ResizablePanel defaultSize={60} minSize={35} className="min-h-0 min-w-0 flex-1">
+					<ResizablePanel
+						id="aivp-editor-split-preview"
+						order={2}
+						defaultSize={60}
+						minSize={35}
+						className="min-h-0 min-w-0 flex-1"
+					>
 						{preview}
 					</ResizablePanel>
 				</ResizablePanelGroup>
@@ -188,12 +206,31 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 				</div>
 			);
 		return (
-			<ResizablePanelGroup direction="vertical" className="size-full gap-[0.18rem]">
-				<ResizablePanel defaultSize={55} minSize={30} maxSize={80} className="min-h-0">
+			<ResizablePanelGroup
+				key={`aivp-editor-root-${variant}`}
+				id={`aivp-editor-root-${variant}`}
+				direction="vertical"
+				className="size-full gap-[0.18rem]"
+			>
+				<ResizablePanel
+					id={`aivp-editor-${variant}-top`}
+					order={1}
+					defaultSize={55}
+					minSize={30}
+					maxSize={80}
+					className="min-h-0"
+				>
 					{top}
 				</ResizablePanel>
 				<ResizableHandle withHandle />
-				<ResizablePanel defaultSize={45} minSize={20} maxSize={70} className="min-h-0 px-2 pb-2">
+				<ResizablePanel
+					id={`aivp-editor-${variant}-timeline`}
+					order={2}
+					defaultSize={45}
+					minSize={20}
+					maxSize={70}
+					className="min-h-0 px-2 pb-2"
+				>
 					<Timeline />
 				</ResizablePanel>
 			</ResizablePanelGroup>
@@ -202,6 +239,8 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 
 	return (
 		<ResizablePanelGroup
+			key="aivp-editor-root-full"
+			id="aivp-editor-root-full"
 			direction="vertical"
 			className="size-full gap-[0.18rem]"
 			onLayout={(sizes) => {
@@ -216,12 +255,16 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 			}}
 		>
 			<ResizablePanel
+				id="aivp-editor-full-main"
+				order={1}
 				defaultSize={panels.mainContent}
 				minSize={30}
 				maxSize={85}
 				className="min-h-0"
 			>
 				<ResizablePanelGroup
+					key="aivp-editor-full-inner"
+					id="aivp-editor-full-inner"
 					direction="horizontal"
 					className="size-full gap-[0.19rem] px-3"
 					onLayout={(sizes) => {
@@ -234,6 +277,8 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 					}}
 				>
 					<ResizablePanel
+						id="aivp-editor-full-assets"
+						order={1}
 						defaultSize={panels.tools}
 						minSize={15}
 						maxSize={40}
@@ -245,6 +290,8 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 					<ResizableHandle withHandle />
 
 					<ResizablePanel
+						id="aivp-editor-full-preview"
+						order={2}
 						defaultSize={panels.preview}
 						minSize={30}
 						className="min-h-0 min-w-0 flex-1"
@@ -255,6 +302,8 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 					<ResizableHandle withHandle />
 
 					<ResizablePanel
+						id="aivp-editor-full-properties"
+						order={3}
 						defaultSize={panels.properties}
 						minSize={15}
 						maxSize={40}
@@ -268,6 +317,8 @@ export function EditorLayout({ variant = "full" }: { variant?: EditorLayoutVaria
 			<ResizableHandle withHandle />
 
 			<ResizablePanel
+				id="aivp-editor-full-timeline"
+				order={2}
 				defaultSize={panels.timeline}
 				minSize={15}
 				maxSize={70}
